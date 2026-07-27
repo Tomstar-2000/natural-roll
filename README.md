@@ -15,13 +15,13 @@ Below are demonstrations of how the natural physics gestures work inside Foundry
 
 _Grab, drag, and flick a single die across the screen._
 
-<video src="docs/assets/single-roll-demo.webm" autoplay loop muted playsinline width="100%"></video>
+<video src="https://raw.githubusercontent.com/Tomstar-2000/natural-roll/main/docs/assets/single-roll-demo.webm" autoplay loop muted playsinline width="100%"></video>
 
 ### 2. Rolling Multiple Dice (As a Group)
 
 _Interact with multiple dice simultaneously, dragging the entire group and tossing them together._
 
-<video src="docs/assets/multiple-roll-demo.webm" autoplay loop muted playsinline width="100%"></video>
+<video src="https://raw.githubusercontent.com/Tomstar-2000/natural-roll/main/docs/assets/multiple-roll-demo.webm" autoplay loop muted playsinline width="100%"></video>
 
 ---
 
