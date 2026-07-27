@@ -1,0 +1,27 @@
+{
+    "id": "natural-roll",
+    "title": "Natural Roll",
+    "description": "Provides the ability to hold and roll dice like a real physical roll, compatible with Dice So Nice.",
+    "version": "1.0.0",
+    "compatibility": {
+        "minimum": 11,
+        "verified": "14.365"
+    },
+    "authors": [
+        {
+            "name": "Tomstar2000"
+        }
+    ],
+    "esmodules": [
+        "./natural-roll.js"
+    ],
+    "scripts": [],
+    "relationships": {
+        "requires": [
+            {
+                "id": "dice-so-nice",
+                "type": "module"
+            }
+        ]
+    }
+}
