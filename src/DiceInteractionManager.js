@@ -1,7 +1,7 @@
 import { log } from "./utils.js";
 
 export class DiceInteractionManager {
-    static async handleHoldAndRoll(throwEngine, throws, persistentThrowData, callback) {
+    static async handleHoldAndRoll(throwEngine, throws, callback) {
         if (throwEngine.rolling) return;
 
         throwEngine.throws = null;

@@ -114,7 +114,7 @@ export class DSNPatcher {
             }
 
             log("Triggering manual hold-and-roll screen.");
-            await DiceInteractionManager.handleHoldAndRoll(this, throws, persistentThrowData, callback);
+            await DiceInteractionManager.handleHoldAndRoll(this, throws, callback);
         };
         log("Patched Dice So Nice! ThrowEngine successfully.");
     }
