@@ -100,6 +100,14 @@ export class DiceInteractionManager {
             spawnPos
         };
 
+        let timeoutId = null;
+        const clearRollTimeout = () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+        };
+
         let isUpdatingConstraint = false;
         const updateConstraints = async (pos3D) => {
             if (isUpdatingConstraint) return;
@@ -123,12 +131,55 @@ export class DiceInteractionManager {
             }
         };
 
+        const isClickNearAnyDie = (clientX, clientY) => {
+            const diceScene = game.dice3d?.box?.diceScene;
+            if (!diceScene || !diceScene.camera) return true;
+
+            const camera = diceScene.camera;
+            const rect = dsnCanvas.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+
+            const THREE = globalThis.THREE;
+            if (!THREE) return true;
+
+            const tempV = new THREE.Vector3();
+            const grabRadius = game.settings.get("natural-roll", "grabRadius") || 80;
+
+            for (const die of interactionState.heldDice) {
+                const diePos = die.parent ? die.parent.position : die.position;
+                if (!diePos) continue;
+
+                tempV.set(diePos.x, diePos.y, diePos.z);
+                tempV.project(camera);
+
+                const x = ((tempV.x + 1) * width) / 2 + rect.left;
+                const y = ((-tempV.y + 1) * height) / 2 + rect.top;
+
+                const dx = clientX - x;
+                const dy = clientY - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < grabRadius) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
         const onPointerDown = (e) => {
             if (e.pointerType && e.pointerType !== "mouse") return;
 
             if (e.target !== dsnCanvas && !dsnCanvas.contains(e.target)) {
                 return;
             }
+
+            if (!isClickNearAnyDie(e.clientX, e.clientY)) {
+                return;
+            }
+
+            clearRollTimeout();
 
             const pos3D = DiceInteractionManager.get3DCoords(e);
             if (!pos3D) return;
@@ -171,6 +222,8 @@ export class DiceInteractionManager {
 
             e.stopPropagation();
             e.preventDefault();
+
+            clearRollTimeout();
 
             window.removeEventListener("pointerdown", onPointerDown, true);
             window.removeEventListener("pointermove", onPointerMove, true);
@@ -312,6 +365,108 @@ export class DiceInteractionManager {
             throwEngine.running = (new Date()).getTime();
             throwEngine._simulationReady = true;
         };
+
+        const executeAutoRoll = async () => {
+            clearRollTimeout();
+            window.removeEventListener("pointerdown", onPointerDown, true);
+            window.removeEventListener("pointermove", onPointerMove, true);
+            window.removeEventListener("pointerup", onPointerUp, true);
+
+            const randomAngle = Math.random() * Math.PI * 2;
+            const dirX = Math.cos(randomAngle);
+            const dirZ = Math.sin(randomAngle);
+            const tossSpeed = 1.5;
+            const lift = 0.5;
+
+            const velocity = {
+                x: dirX * tossSpeed,
+                y: lift,
+                z: dirZ * tossSpeed
+            };
+
+            const spinMultiplier = 0.65;
+            const baseSpin = 15 + Math.random() * 5;
+
+            log("Auto-roll timeout triggered. Rolling dice automatically.");
+            
+            throwEngine.rolling = true;
+            throwEngine._simulationReady = false;
+
+            await throwEngine.physicsWorker.exec("removeConstraint", {
+                ids: interactionState.heldDice.map(d => d.id)
+            });
+
+            const impulses = {};
+            for (const d of interactionState.heldDice) {
+                impulses[d.id] = {
+                    velocity,
+                    angularVelocity: {
+                        x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                        y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                        z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
+                    }
+                };
+            }
+
+            if (dsnCanvas) {
+                dsnCanvas.style.pointerEvents = "none";
+            }
+
+            const simResult = await throwEngine.physicsWorker.exec('simulateThrow', {
+                minIterations: throwEngine.minIterations,
+                nbIterationsBetweenRolls: throwEngine.nbIterationsBetweenRolls,
+                framerate: throwEngine.framerate,
+                canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped"),
+                impulses: impulses
+            });
+
+            if (!simResult) {
+                console.error("Natural Roll | simulateThrow failed on auto-roll");
+                throwEngine.rolling = false;
+                callback?.(throws);
+                return;
+            }
+
+            const { ids, quaternionsBuffers, positionsBuffers, detectedCollides, iterationsNeeded, faceValues } = simResult;
+            const quaternions = quaternionsBuffers.map(buffer => new Float32Array(buffer));
+            const positions = positionsBuffers.map(buffer => new Float32Array(buffer));
+
+            throwEngine.iterationsNeeded = iterationsNeeded;
+            const idToIndex = new Map();
+            ids.forEach((id, index) => idToIndex.set(id, index));
+
+            const ephemeralDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
+            for (const dice of ephemeralDiceList) {
+                const index = idToIndex.get(dice.id);
+                if (index !== undefined) {
+                    dice.sim = {
+                        dead: false,
+                        stepQuaternions: quaternions[index],
+                        stepPositions: positions[index]
+                    };
+                }
+            }
+
+            for (const dicemesh of throwEngine.diceList) {
+                if (dicemesh) {
+                    throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
+                    dicemesh.result = null;
+                }
+            }
+
+            throwEngine.detectedCollides = throwEngine.soundManager.generateCollisionSounds(detectedCollides);
+            throwEngine.iteration = 0;
+            throwEngine.callback = callback;
+            throwEngine.throws = throws;
+
+            throwEngine.running = (new Date()).getTime();
+            throwEngine._simulationReady = true;
+        };
+
+        if (game.settings.get("natural-roll", "enableTimeout")) {
+            const durationSec = game.settings.get("natural-roll", "timeoutDuration") || 15;
+            timeoutId = setTimeout(executeAutoRoll, durationSec * 1000);
+        }
 
         window.addEventListener("pointerdown", onPointerDown, true);
         window.addEventListener("pointermove", onPointerMove, true);
