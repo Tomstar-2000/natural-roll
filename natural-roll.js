@@ -67,6 +67,24 @@ Hooks.once('init', () => {
         }
     });
 
+    game.settings.register("natural-roll", "spawnAtCursor", {
+        name: "Spawn Dice at Cursor",
+        hint: "Spawn the dice directly under your mouse/pointer instead of the center of the screen.",
+        scope: "client",
+        config: true,
+        type: Boolean,
+        default: false
+    });
+
+    game.settings.register("natural-roll", "enableRattleSfx", {
+        name: "Enable Shake SFX",
+        hint: "Play rattling/collision sound effects when shaking the dice in your hand.",
+        scope: "client",
+        config: true,
+        type: Boolean,
+        default: true
+    });
+
     DSNPatcher.init();
 });
 

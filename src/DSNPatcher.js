@@ -45,6 +45,12 @@ export class DSNPatcher {
                 }
                 return originalUpdateThrowPlayback.call(this, neededSteps);
             };
+
+            const originalClearDice = throwEngine.clearDice;
+            throwEngine.clearDice = function() {
+                DiceInteractionManager.cleanup(this);
+                return originalClearDice.apply(this, arguments);
+            };
         }
 
         if (!game.dice3d._patchedForNaturalRoll) {
