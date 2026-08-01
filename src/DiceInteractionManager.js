@@ -54,6 +54,7 @@ export class DiceInteractionManager {
 
         DiceInteractionManager.cleanup(throwEngine);
 
+        throwEngine._simulationReady = false;
         throwEngine.throws = null;
         throwEngine.callback = null;
         throwEngine.clearDice();
@@ -167,7 +168,8 @@ export class DiceInteractionManager {
             onPointerMove: null,
             onPointerUp: null,
             updateCursor: null,
-            lastRattleTime: 0
+            lastRattleTime: 0,
+            spawnTime: performance.now()
         };
 
         throwEngine._naturalRollState = interactionState;
@@ -182,13 +184,29 @@ export class DiceInteractionManager {
         const playShakeSound = () => {
             if (!game.settings.get("natural-roll", "enableRattleSfx")) return;
             try {
-                const soundSurface = game.settings.get("dice-so-nice", "soundSurface") || "plastic";
-                const volume = game.settings.get("dice-so-nice", "soundVolume") ?? 0.5;
+                let soundSurface = "plastic";
+                try {
+                    soundSurface = game.settings.get("dice-so-nice", "soundSurface") || "plastic";
+                } catch (e) {
+                    console.warn("Natural Roll | Failed to get soundSurface setting from dice-so-nice, falling back to 'plastic'. Error:", e.message);
+                }
+                
+                let volume = 0.5;
+                try {
+                    volume = game.settings.get("dice-so-nice", "soundVolume") ?? 0.5;
+                } catch (e) {
+                    console.warn("Natural Roll | Failed to get soundVolume setting from dice-so-nice, falling back to 0.5. Error:", e.message);
+                }
+
                 if (throwEngine.soundManager && typeof throwEngine.soundManager.play === "function") {
                     throwEngine.soundManager.play("collision", volume);
                 } else {
                     const src = `modules/dice-so-nice/sfx/sounds/${soundSurface}/collision.wav`;
-                    AudioHelper.play({ src, volume }, false);
+                    if (typeof AudioHelper !== "undefined") {
+                        AudioHelper.play({ src, volume }, false);
+                    } else if (game.audio && typeof game.audio.play === "function") {
+                        game.audio.play(src, { volume });
+                    }
                 }
             } catch (e) {
                 console.warn("Natural Roll | Failed to play shake sound:", e);
@@ -258,6 +276,8 @@ export class DiceInteractionManager {
         };
 
         const onPointerDown = (e) => {
+            if (performance.now() - interactionState.spawnTime < 200) return;
+
             if (e.pointerType && e.pointerType !== "mouse" && e.pointerType !== "touch" && e.pointerType !== "pen") return;
 
             if (e.target !== dsnCanvas && !dsnCanvas.contains(e.target)) {

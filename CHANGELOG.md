@@ -2,6 +2,14 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.1.1] - 2026-08-01
+
+### Fixed
+- **Subsequent Roll Auto-Roll**: Fixed an issue where `throwEngine._simulationReady` was not reset to `false` when a new roll started, causing subsequent rolls to immediately auto-roll.
+- **F11 Full Screen Auto-Roll**: Implemented a `200ms` input cooldown on pointer grabs after dice spawn to prevent the click that initiated the roll from instantly grabbing and releasing/rolling the dice when in full screen.
+- **DSN Re-initialization & Resize**: Added synchronous DSN patching helpers and hooked them into `show` and `showForRoll` to ensure the module stays hooked even when DSN dynamically rebuilds the `throwEngine` during browser resizes/F11 toggles.
+- **DSN settings ReferenceError**: Added safety catch blocks around DSN settings queries for `soundSurface` and `soundVolume` with graceful fallbacks and descriptive warnings to avoid `ReferenceError` crashes on certain DSN versions.
+
 ## [1.1.0] - 2026-08-01
 
 ### Added
