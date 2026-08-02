@@ -9,6 +9,7 @@ Hooks.once('init', () => {
         hint: "Intercept rolls and hold them on the canvas. Drag and flick to roll.",
         scope: "client",
         config: true,
+        requiresReload: false,
         type: Boolean,
         default: true
     });
@@ -18,6 +19,7 @@ Hooks.once('init', () => {
         hint: "Multiplier for your flick speed.",
         scope: "client",
         config: true,
+        requiresReload: false,
         type: Number,
         default: 1.0,
         range: {
@@ -33,6 +35,7 @@ Hooks.once('init', () => {
         scope: "world",
         config: true,
         restricted: true,
+        requiresReload: false,
         type: Boolean,
         default: true
     });
@@ -43,6 +46,7 @@ Hooks.once('init', () => {
         scope: "world",
         config: true,
         restricted: true,
+        requiresReload: false,
         type: Number,
         default: 15,
         range: {
@@ -58,6 +62,7 @@ Hooks.once('init', () => {
         scope: "world",
         config: true,
         restricted: true,
+        requiresReload: false,
         type: Number,
         default: 80,
         range: {
@@ -72,6 +77,7 @@ Hooks.once('init', () => {
         hint: "Spawn the dice directly under your mouse/pointer instead of the center of the screen.",
         scope: "client",
         config: true,
+        requiresReload: false,
         type: Boolean,
         default: false
     });
@@ -81,8 +87,24 @@ Hooks.once('init', () => {
         hint: "Play rattling/collision sound effects when shaking the dice in your hand.",
         scope: "client",
         config: true,
+        requiresReload: false,
         type: Boolean,
         default: true
+    });
+
+    game.settings.register("natural-roll", "diceSpread", {
+        name: "Dice Spread / Spacing",
+        hint: "Adjust the spacing/spread scale of the initial dice pool (default is 0.06).",
+        scope: "client",
+        config: true,
+        requiresReload: false,
+        type: Number,
+        default: 0.06,
+        range: {
+            min: 0.04,
+            max: 0.12,
+            step: 0.01
+        }
     });
 
     DSNPatcher.init();

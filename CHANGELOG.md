@@ -2,6 +2,14 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.2.1] - 2026-08-02
+
+### Added
+- **Dice Spread / Spacing Setting**: Added a user setting to configure the spacing scale of the initial dice pool (range `0.04` to `0.12`, default `0.06`).
+
+### Fixed
+- **Settings Save Reload Bug**: Added explicit `requiresReload: false` to all setting registrations to prevent the first-time settings save from triggering an unwanted application reload and failing to persist configurations.
+
 ## [1.1.1] - 2026-08-01
 
 ### Fixed

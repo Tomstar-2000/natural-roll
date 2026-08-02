@@ -90,7 +90,7 @@ export class DiceInteractionManager {
                     die.startAtIteration = 0;
 
                     const goldenAngle = 137.5 * (Math.PI / 180);
-                    const c = 0.09;
+                    const c = game.settings.get("natural-roll", "diceSpread") ?? 0.06;
                     const r = c * Math.sqrt(spawned);
                     const theta = spawned * goldenAngle;
 
@@ -221,7 +221,7 @@ export class DiceInteractionManager {
                 const positions = {};
                 interactionState.heldDice.forEach((die, index) => {
                     const goldenAngle = 137.5 * (Math.PI / 180);
-                    const c = 0.09;
+                    const c = game.settings.get("natural-roll", "diceSpread") ?? 0.06;
                     const r = c * Math.sqrt(index);
                     const theta = index * goldenAngle;
                     positions[die.id] = {
