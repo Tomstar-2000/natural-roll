@@ -1,4 +1,4 @@
-import { log } from "./utils.js";
+import { log } from "../utils.js";
 
 export function shouldAutoRoll(roll) {
     if (!game.modules.get("midi-qol")?.active) {

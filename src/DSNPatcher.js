@@ -1,6 +1,15 @@
 import { log } from "./utils.js";
-import { shouldAutoRoll } from "./MidiQOLHelper.js";
+import { shouldAutoRoll as dnd5eShouldAutoRoll } from "./systems/dnd5e.js";
 import { DiceInteractionManager } from "./DiceInteractionManager.js";
+
+function shouldAutoRoll(roll) {
+    const systemId = game.system?.id;
+    if (systemId === "dnd5e") {
+        return dnd5eShouldAutoRoll(roll);
+    }
+    return false;
+}
+
 
 let nextRollIsManual = false;
 
