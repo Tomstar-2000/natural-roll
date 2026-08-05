@@ -5,6 +5,8 @@
 
 **Natural Roll** brings physical-feeling dice rolls to Foundry VTT. Instead of rolls immediately firing into animations automatically, this module holds the 3D dice on your screen, allowing you to grab, drag, shake, and flick/toss them just like real physical dice in your hand.
 
+> ℹ️ **Automation Override Support:** Currently, roll automation override is only implemented for the **dnd5e** system using **Midi-QOL**. If you are using other game systems or automation modules and want support added, please raise a ticket/issue specifying the game system and automation module details.
+
 ---
 
 ## 📽️ Showcase & Demonstration
@@ -59,16 +61,16 @@ To install the module, follow these steps:
 
 Each player can customize their experience in **Game Settings -> Configure Settings -> Natural Roll**:
 
-| Setting                      | Scope  | Type    | Default  | Description                                                                                                             |
-| ---------------------------- | ------ | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Enable Natural Roll**      | User   | Boolean | `true`   | When enabled, standard rolls will wait for you to drag and flick them on the canvas.                                    |
-| **Flick Strength**           | User   | Number  | `1.0`    | Multiplier for your flick speed (range: `0.1` to `5.0`). Increase if you want more explosive throws with less movement. |
-| **Enable Auto-Roll Timeout** | GM     | Boolean | `true`   | Automatically rolls the dice if the player does not pick them up.                                                       |
-| **Auto-Roll Timeout**        | GM     | Number  | `15`     | Time in seconds before a timeout triggers (range: `3` to `60` seconds).                                                 |
-| **Grab Radius**              | GM     | Number  | `80`     | Minimum pixel distance from a die required to grab/pick it up (range: `20` to `200` pixels).                            |
-| **Spawn Dice at Cursor**     | User   | Boolean | `false`  | Spawns the dice directly under your mouse/pointer instead of the center of the screen.                                  |
-| **Enable Shake SFX**         | User   | Boolean | `true`   | Plays rattling/collision sound effects when shaking the dice in your hand.                                              |
-| **Dice Spread / Spacing**    | User   | Number  | `0.06`   | Adjusts the spacing/spread scale of the initial dice pool (range: `0.04` to `0.12`).                                     |
+| Setting                      | Scope | Type    | Default | Description                                                                                                             |
+| ---------------------------- | ----- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Enable Natural Roll**      | User  | Boolean | `true`  | When enabled, standard rolls will wait for you to drag and flick them on the canvas.                                    |
+| **Flick Strength**           | User  | Number  | `1.0`   | Multiplier for your flick speed (range: `0.1` to `5.0`). Increase if you want more explosive throws with less movement. |
+| **Enable Auto-Roll Timeout** | GM    | Boolean | `true`  | Automatically rolls the dice if the player does not pick them up.                                                       |
+| **Auto-Roll Timeout**        | GM    | Number  | `15`    | Time in seconds before a timeout triggers (range: `3` to `60` seconds).                                                 |
+| **Grab Radius**              | GM    | Number  | `80`    | Minimum pixel distance from a die required to grab/pick it up (range: `20` to `200` pixels).                            |
+| **Spawn Dice at Cursor**     | User  | Boolean | `false` | Spawns the dice directly under your mouse/pointer instead of the center of the screen.                                  |
+| **Enable Shake SFX**         | User  | Boolean | `true`  | Plays rattling/collision sound effects when shaking the dice in your hand.                                              |
+| **Dice Spread / Spacing**    | User  | Number  | `0.06`  | Adjusts the spacing/spread scale of the initial dice pool (range: `0.04` to `0.12`).                                    |
 
 ---
 
