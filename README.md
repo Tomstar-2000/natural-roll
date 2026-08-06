@@ -39,9 +39,9 @@ _Interact with multiple dice simultaneously, dragging the entire group and tossi
 - 🔊 **Rattle Sound Effects**: Interactive rattle collision sounds play as you shake or drag the dice in your hand. Respects your configured Dice So Nice! sound surface (e.g. plastic, wood) and volume.
 - ↔️ **Configurable Dice Spacing/Spread**: Fine-tune the initial spacing of your dice pool via a settings slider to prevent large batches of dice from overlapping.
 - 📱 **Mobile & Touch Support**: Full compatibility with touch and pen pointer gestures, featuring multi-touch pointer tracking.
-- 🤖 Smart Automation Override: Automatically skips manual interaction when set for fast-paced, automated workflow rolls (such as Midi-QOL attacks or damage rolls), allowing them to resolve instantly without holding up the game.
+- 🤖 **Smart Automation Override**: Automatically skips manual interaction when set for fast-paced, automated workflow rolls (such as Midi-QOL attacks or damage rolls), allowing them to resolve instantly without holding up the game.
 
-ℹ️ **Automation Override Support:** Currently, roll automation override is only implemented for the dnd5e system using Midi-QOL. If you are using other game systems or automation modules and want support added, please raise a ticket/issue specifying the game system and automation module details.
+ℹ️ **Automation Override Support**: Currently, roll automation override is only implemented for the dnd5e system using Midi-QOL. If you are using other game systems or automation modules and want support added, please raise a ticket/issue specifying the game system and automation module details.
 
 ---
 
