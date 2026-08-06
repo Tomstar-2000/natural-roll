@@ -5,7 +5,8 @@
 
 **Natural Roll** brings physical-feeling dice rolls to Foundry VTT. Instead of rolls immediately firing into animations automatically, this module holds the 3D dice on your screen, allowing you to grab, drag, shake, and flick/toss them just like real physical dice in your hand.
 
-> ℹ️ **Automation Override Support:** Currently, roll automation override is only implemented for the **dnd5e** system using **Midi-QOL**. If you are using other game systems or automation modules and want support added, please raise a ticket/issue specifying the game system and automation module details.
+- It is truly dynamic: The outcome of your roll is determined entirely by the physics of your grab and flick (speed, angle, and wall bounces).
+- How it works: Foundry normally pre-calculates the result using RNG. Natural Roll overrides this by clearing the pre-determined result and feeding the actual physical landing face of the 3D dice back into Foundry to generate the chat card.
 
 ---
 
@@ -38,6 +39,9 @@ _Interact with multiple dice simultaneously, dragging the entire group and tossi
 - 🔊 **Rattle Sound Effects**: Interactive rattle collision sounds play as you shake or drag the dice in your hand. Respects your configured Dice So Nice! sound surface (e.g. plastic, wood) and volume.
 - ↔️ **Configurable Dice Spacing/Spread**: Fine-tune the initial spacing of your dice pool via a settings slider to prevent large batches of dice from overlapping.
 - 📱 **Mobile & Touch Support**: Full compatibility with touch and pen pointer gestures, featuring multi-touch pointer tracking.
+- 🤖 **Smart Automation Override**: Automatically skips manual interaction when set for fast-paced, automated workflow rolls (such as Midi-QOL attacks or damage rolls), allowing them to resolve instantly without holding up the game.
+
+ℹ️ **Automation Override Support**: Currently, roll automation override is only implemented for the dnd5e system using Midi-QOL. If you are using other game systems or automation modules and want support added, please raise a ticket/issue specifying the game system and automation module details.
 
 ---
 
