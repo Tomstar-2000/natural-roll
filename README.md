@@ -18,19 +18,19 @@ Below are demonstrations of the natural physics gestures and automated bypasses 
 
 _Grab, drag, and flick a single die across the screen._
 
-<video src="docs/assets/Single%20Dice%20Demo.webm" autoplay loop muted playsinline width="100%"></video>
+![Single Die Roll Demo](docs/assets/Single%20Dice%20Demo.gif)
 
 ### 2. Rolling Multiple Dice (As a Group)
 
 _Interact with multiple dice simultaneously, dragging the entire group and tossing them together._
 
-<video src="docs/assets/Dice%20Tray%20And%20Mutliple%20Dice%20Demo.webm" autoplay loop muted playsinline width="100%"></video>
+![Multiple Dice Roll Demo](docs/assets/Dice%20Tray%20and%20Mutliple%20Dice%20Demo.gif)
 
 ### 3. Automation Override / Fast-Bypass
 
 _Player rolls are held for physical gestures, while automated rolls (like GM attacks/NPC saves) resolve automatically in the background._
 
-<video src="docs/assets/Player%20Vs%20Dm%20Automation%20Bypass%20Demo.webm" autoplay loop muted playsinline width="100%"></video>
+![Automation Bypass Demo](docs/assets/Player%20vs%20DM%20automation%20bypass%20Demo.gif)
 
 ---
 
