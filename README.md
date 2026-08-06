@@ -5,6 +5,9 @@
 
 **Natural Roll** brings physical-feeling dice rolls to Foundry VTT. Instead of rolls immediately firing into animations automatically, this module holds the 3D dice on your screen, allowing you to grab, drag, shake, and flick/toss them just like real physical dice in your hand.
 
+- It is truly dynamic: The outcome of your roll is determined entirely by the physics of your grab and flick (speed, angle, and wall bounces).
+- How it works: Foundry normally pre-calculates the result using RNG. Natural Roll overrides this by clearing the pre-determined result and feeding the actual physical landing face of the 3D dice back into Foundry to generate the chat card.
+
 > ℹ️ **Automation Override Support:** Currently, roll automation override is only implemented for the **dnd5e** system using **Midi-QOL**. If you are using other game systems or automation modules and want support added, please raise a ticket/issue specifying the game system and automation module details.
 
 ---
