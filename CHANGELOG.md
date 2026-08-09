@@ -2,6 +2,11 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.3.0] - 2026-08-09
+
+### Added
+- **Localization**: Added full translation and localization support for English, Spanish, French, and German settings names, hints, and notification warnings.
+
 ## [1.2.1] - 2026-08-02
 
 ### Added
