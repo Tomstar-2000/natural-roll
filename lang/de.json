@@ -1,0 +1,19 @@
+{
+  "NATURAL_ROLL.Settings.Enabled.Name": "Natürliches Würfeln aktivieren",
+  "NATURAL_ROLL.Settings.Enabled.Hint": "Fängt Würfe ab und hält sie auf dem Spielfeld. Ziehen und schleudern zum Würfeln.",
+  "NATURAL_ROLL.Settings.FlickMultiplier.Name": "Wurfstärke",
+  "NATURAL_ROLL.Settings.FlickMultiplier.Hint": "Multiplikator für Ihre Wurfgeschwindigkeit.",
+  "NATURAL_ROLL.Settings.EnableTimeout.Name": "Automatisches Würfeln aktivieren",
+  "NATURAL_ROLL.Settings.EnableTimeout.Hint": "Würfelt die Würfel automatisch, wenn sie nach einer bestimmten Zeit nicht aufgehoben werden.",
+  "NATURAL_ROLL.Settings.TimeoutDuration.Name": "Zeitlimit für automatischen Wurf (Sekunden)",
+  "NATURAL_ROLL.Settings.TimeoutDuration.Hint": "Anzahl der Sekunden, die gewartet wird, bevor automatisch gewürfelt wird, wenn die Würfel nicht aufgehoben werden.",
+  "NATURAL_ROLL.Settings.GrabRadius.Name": "Greifradius (Pixel)",
+  "NATURAL_ROLL.Settings.GrabRadius.Hint": "Mindestabstand in Pixeln zu einem Würfel, um ihn aufzuheben.",
+  "NATURAL_ROLL.Settings.SpawnAtCursor.Name": "Würfel am Cursor erzeugen",
+  "NATURAL_ROLL.Settings.SpawnAtCursor.Hint": "Erzeugt die Würfel direkt unter Ihrer Maus/Ihrem Zeiger anstatt in der Mitte des Bildschirms.",
+  "NATURAL_ROLL.Settings.EnableRattleSfx.Name": "Schüttel-Soundeffekte aktivieren",
+  "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Spielt Klapper-/Kollisionsgeräusche ab, wenn Sie die Würfel in Ihrer Hand schütteln.",
+  "NATURAL_ROLL.Settings.DiceSpread.Name": "Würfelverteilung / Abstand",
+  "NATURAL_ROLL.Settings.DiceSpread.Hint": "Passt den Skalierungsfaktor für den Abstand/die Verteilung des anfänglichen Würfelpools an (Standardwert ist 0.06).",
+  "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll erfordert, dass das Modul 'Dice So Nice!' installiert und aktiv ist."
+}

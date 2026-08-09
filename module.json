@@ -19,6 +19,28 @@
         "./natural-roll.js"
     ],
     "scripts": [],
+    "languages": [
+        {
+            "lang": "en",
+            "name": "English",
+            "path": "lang/en.json"
+        },
+        {
+            "lang": "es",
+            "name": "Español",
+            "path": "lang/es.json"
+        },
+        {
+            "lang": "fr",
+            "name": "Français",
+            "path": "lang/fr.json"
+        },
+        {
+            "lang": "de",
+            "name": "Deutsch",
+            "path": "lang/de.json"
+        }
+    ],
     "relationships": {
         "requires": [
             {

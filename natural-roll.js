@@ -5,8 +5,8 @@ console.log("%cNatural Roll %c| Script file parsed and running!", "color: #00ffa
 Hooks.once('init', () => {
     console.log("Natural Roll | Hooks.once('init') callback running.");
     game.settings.register("natural-roll", "enabled", {
-        name: "Enable Natural Roll",
-        hint: "Intercept rolls and hold them on the canvas. Drag and flick to roll.",
+        name: "NATURAL_ROLL.Settings.Enabled.Name",
+        hint: "NATURAL_ROLL.Settings.Enabled.Hint",
         scope: "client",
         config: true,
         requiresReload: false,
@@ -15,8 +15,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "flickMultiplier", {
-        name: "Flick Strength",
-        hint: "Multiplier for your flick speed.",
+        name: "NATURAL_ROLL.Settings.FlickMultiplier.Name",
+        hint: "NATURAL_ROLL.Settings.FlickMultiplier.Hint",
         scope: "client",
         config: true,
         requiresReload: false,
@@ -30,8 +30,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "enableTimeout", {
-        name: "Enable Auto-Roll Timeout",
-        hint: "Automatically roll the dice if they are not picked up after a certain amount of time.",
+        name: "NATURAL_ROLL.Settings.EnableTimeout.Name",
+        hint: "NATURAL_ROLL.Settings.EnableTimeout.Hint",
         scope: "world",
         config: true,
         restricted: true,
@@ -41,8 +41,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "timeoutDuration", {
-        name: "Auto-Roll Timeout (Seconds)",
-        hint: "Number of seconds to wait before auto-rolling if the dice are not picked up.",
+        name: "NATURAL_ROLL.Settings.TimeoutDuration.Name",
+        hint: "NATURAL_ROLL.Settings.TimeoutDuration.Hint",
         scope: "world",
         config: true,
         restricted: true,
@@ -57,8 +57,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "grabRadius", {
-        name: "Grab Radius (Pixels)",
-        hint: "Minimum pixel distance from a die required to grab/pick it up.",
+        name: "NATURAL_ROLL.Settings.GrabRadius.Name",
+        hint: "NATURAL_ROLL.Settings.GrabRadius.Hint",
         scope: "world",
         config: true,
         restricted: true,
@@ -73,8 +73,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "spawnAtCursor", {
-        name: "Spawn Dice at Cursor",
-        hint: "Spawn the dice directly under your mouse/pointer instead of the center of the screen.",
+        name: "NATURAL_ROLL.Settings.SpawnAtCursor.Name",
+        hint: "NATURAL_ROLL.Settings.SpawnAtCursor.Hint",
         scope: "client",
         config: true,
         requiresReload: false,
@@ -83,8 +83,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "enableRattleSfx", {
-        name: "Enable Shake SFX",
-        hint: "Play rattling/collision sound effects when shaking the dice in your hand.",
+        name: "NATURAL_ROLL.Settings.EnableRattleSfx.Name",
+        hint: "NATURAL_ROLL.Settings.EnableRattleSfx.Hint",
         scope: "client",
         config: true,
         requiresReload: false,
@@ -93,8 +93,8 @@ Hooks.once('init', () => {
     });
 
     game.settings.register("natural-roll", "diceSpread", {
-        name: "Dice Spread / Spacing",
-        hint: "Adjust the spacing/spread scale of the initial dice pool (default is 0.06).",
+        name: "NATURAL_ROLL.Settings.DiceSpread.Name",
+        hint: "NATURAL_ROLL.Settings.DiceSpread.Hint",
         scope: "client",
         config: true,
         requiresReload: false,
@@ -113,7 +113,7 @@ Hooks.once('init', () => {
 Hooks.once('ready', () => {
     console.log("Natural Roll | Hooks.once('ready') callback running.");
     if (!game.modules.get("dice-so-nice")?.active) {
-        ui.notifications.warn("Natural Roll requires the 'Dice So Nice!' module to be installed and active.");
+        ui.notifications.warn(game.i18n.localize("NATURAL_ROLL.Warnings.DsnRequired"));
     }
 
     if (!game.user?.isGM) {

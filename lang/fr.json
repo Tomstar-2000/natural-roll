@@ -1,0 +1,19 @@
+{
+  "NATURAL_ROLL.Settings.Enabled.Name": "Activer le Lancer Naturel",
+  "NATURAL_ROLL.Settings.Enabled.Hint": "Intercepte les lancers et les maintient sur le canevas. Glissez et lancez pour rouler.",
+  "NATURAL_ROLL.Settings.FlickMultiplier.Name": "Force de Lancement",
+  "NATURAL_ROLL.Settings.FlickMultiplier.Hint": "Multiplicateur pour la vitesse de votre lancer rapide.",
+  "NATURAL_ROLL.Settings.EnableTimeout.Name": "Activer le Délai d'Auto-Lancement",
+  "NATURAL_ROLL.Settings.EnableTimeout.Hint": "Lance automatiquement les dés s'ils ne sont pas ramassés après un certain temps.",
+  "NATURAL_ROLL.Settings.TimeoutDuration.Name": "Durée d'Auto-Lancement (Secondes)",
+  "NATURAL_ROLL.Settings.TimeoutDuration.Hint": "Nombre de secondes à attendre avant de lancer automatiquement si les dés ne sont pas ramassés.",
+  "NATURAL_ROLL.Settings.GrabRadius.Name": "Rayon de Saisie (Pixels)",
+  "NATURAL_ROLL.Settings.GrabRadius.Hint": "Distance minimale en pixels par rapport à un dé requise pour le saisir/ramasser.",
+  "NATURAL_ROLL.Settings.SpawnAtCursor.Name": "Générer les Dés au Curseur",
+  "NATURAL_ROLL.Settings.SpawnAtCursor.Hint": "Génère les dés directement sous votre souris/pointeur plutôt qu'au centre de l'écran.",
+  "NATURAL_ROLL.Settings.EnableRattleSfx.Name": "Activer le Son de Secousse",
+  "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Joue des effets sonores de cliquetis/collision lorsque vous secouez les dés dans votre main.",
+  "NATURAL_ROLL.Settings.DiceSpread.Name": "Dispersion / Espacement des Dés",
+  "NATURAL_ROLL.Settings.DiceSpread.Hint": "Ajuste l'échelle d'espacement/dispersion du pool initial de dés (par défaut 0.06).",
+  "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll nécessite l'installation et l'activation du module 'Dice So Nice!'."
+}

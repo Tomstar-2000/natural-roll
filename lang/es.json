@@ -1,0 +1,19 @@
+{
+  "NATURAL_ROLL.Settings.Enabled.Name": "Activar Tiro Natural",
+  "NATURAL_ROLL.Settings.Enabled.Hint": "Intercepta las tiradas y las mantiene en el lienzo. Arrastra y lanza para tirar.",
+  "NATURAL_ROLL.Settings.FlickMultiplier.Name": "Fuerza de Lanzamiento",
+  "NATURAL_ROLL.Settings.FlickMultiplier.Hint": "Multiplicador para la velocidad de tu lanzamiento rápido.",
+  "NATURAL_ROLL.Settings.EnableTimeout.Name": "Activar Límite de Tiempo de Auto-Tiro",
+  "NATURAL_ROLL.Settings.EnableTimeout.Hint": "Tira automáticamente los dados si no se recogen después de un cierto tiempo.",
+  "NATURAL_ROLL.Settings.TimeoutDuration.Name": "Tiempo de Auto-Tiro (Segundos)",
+  "NATURAL_ROLL.Settings.TimeoutDuration.Hint": "Número de segundos a esperar antes de tirar automáticamente si no se recogen los dados.",
+  "NATURAL_ROLL.Settings.GrabRadius.Name": "Radio de Agarre (Píxeles)",
+  "NATURAL_ROLL.Settings.GrabRadius.Hint": "Distancia mínima en píxeles desde un dado requerida para agarrarlo/recogerlo.",
+  "NATURAL_ROLL.Settings.SpawnAtCursor.Name": "Crear Dados en el Cursor",
+  "NATURAL_ROLL.Settings.SpawnAtCursor.Hint": "Crea los dados directamente bajo tu ratón/puntero en lugar del centro de la pantalla.",
+  "NATURAL_ROLL.Settings.EnableRattleSfx.Name": "Activar Efectos de Sonido de Agitación",
+  "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Reproduce efectos de sonido de traqueteo/colisión al agitar los dados en la mano.",
+  "NATURAL_ROLL.Settings.DiceSpread.Name": "Dispersión / Espaciado de Dados",
+  "NATURAL_ROLL.Settings.DiceSpread.Hint": "Ajusta la escala de espaciado/dispersión del grupo inicial de dados (por defecto es 0.06).",
+  "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll requiere que el módulo 'Dice So Nice!' esté instalado y activo."
+}
