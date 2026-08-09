@@ -214,22 +214,19 @@ export class DiceInteractionManager {
         const playShakeSound = () => {
             if (!game.settings.get("natural-roll", "enableRattleSfx")) return;
             try {
-                let soundSurface = "plastic";
-                try {
-                    soundSurface = game.settings.get("dice-so-nice", "soundSurface") || game.settings.get("dice-so-nice", "soundsSurface") || "plastic";
-                } catch (e) {
-                    console.warn("Natural Roll | Failed to get soundSurface setting from dice-so-nice, falling back to 'plastic'. Error:", e.message);
-                }
-                
-                let volume = 0.5;
-                try {
-                    volume = game.settings.get("dice-so-nice", "soundVolume") ?? game.settings.get("dice-so-nice", "soundsVolume") ?? 0.5;
-                } catch (e) {
-                    console.warn("Natural Roll | Failed to get soundVolume setting from dice-so-nice, falling back to 0.5. Error:", e.message);
-                }
+                const soundManager = game.dice3d?.box?.soundManager;
+                const soundSurface = soundManager?.soundsSurface || "plastic";
+                const volume = (soundManager?.volume ?? 0.5) * 0.5;
 
-                if (throwEngine.soundManager && typeof throwEngine.soundManager.play === "function") {
-                    throwEngine.soundManager.play("collision", volume);
+                if (soundManager && typeof soundManager.eventCollide === "function") {
+                    soundManager.eventCollide({
+                        source: "dice",
+                        diceType: "d6",
+                        diceMaterial: soundSurface,
+                        strength: volume
+                    });
+                } else if (soundManager && typeof soundManager.play === "function") {
+                    soundManager.play("collision", volume);
                 } else {
                     const src = `modules/dice-so-nice/sfx/sounds/${soundSurface}/collision.wav`;
                     const audioHelperClass = globalThis.foundry?.audio?.AudioHelper || globalThis.AudioHelper;
