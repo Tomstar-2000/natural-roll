@@ -32,7 +32,7 @@ export class DiceInteractionManager {
             window.removeEventListener("pointermove", state.updateCursor);
         }
 
-        const dsnCanvas = game.dice3d?.canvas;
+        const dsnCanvas = game.dice3d?.canvas?.[0] || game.dice3d?.canvas;
         if (dsnCanvas) {
             dsnCanvas.style.cursor = "";
         }
@@ -63,14 +63,33 @@ export class DiceInteractionManager {
         const maxDiceNumber = game.settings.get("dice-so-nice", "maxDiceNumber");
         const workerSpecs = [];
 
-        const GRAB_LIFT_EPHEMERAL = 0.05;
-        let spawnPos = { x: 0, y: GRAB_LIFT_EPHEMERAL, z: 0 };
+        const isV13 = !throwEngine.spawnDiceMesh;
+
+        if (game.dice3d?.canvas?.show) {
+            game.dice3d.canvas.show();
+        }
+        const dsnCanvas = game.dice3d?.canvas?.[0] || game.dice3d?.canvas;
+        if (dsnCanvas) {
+            dsnCanvas.style.display = "";
+            dsnCanvas.style.pointerEvents = "auto";
+        }
+
+        const getDieRadius = (dieType) => {
+            const diceobj = throwEngine.dicefactory.get(dieType);
+            const baseScale = throwEngine.dicefactory.baseScale || 50;
+            const scopedScale = (throwEngine.renderer?.scopedTextureCache?.type === "board") ? baseScale : 60;
+            const scaleMultiplier = (diceobj && typeof diceobj.scale === "number") ? diceobj.scale : 1.0;
+            return scaleMultiplier * (scopedScale / 100) * 50;
+        };
+
+        const defaultRadius = 25;
+        let spawnPos = isV13 ? { x: 0, y: 0, z: defaultRadius } : { x: 0, y: 0.05, z: 0 };
 
         if (game.settings.get("natural-roll", "spawnAtCursor")) {
             const cursor3D = DiceInteractionManager.get3DCoords({
                 clientX: lastPointerPos.x,
                 clientY: lastPointerPos.y
-            });
+            }, isV13 ? defaultRadius : 0.05);
             if (cursor3D) {
                 spawnPos = cursor3D;
             }
@@ -90,11 +109,16 @@ export class DiceInteractionManager {
                     die.startAtIteration = 0;
 
                     const goldenAngle = 137.5 * (Math.PI / 180);
-                    const c = game.settings.get("natural-roll", "diceSpread") ?? 0.06;
+                    const c = (game.settings.get("natural-roll", "diceSpread") ?? 0.06) * (isV13 ? 4200 : 1.0);
                     const r = c * Math.sqrt(spawned);
                     const theta = spawned * goldenAngle;
 
-                    const pos = {
+                    const radius = isV13 ? getDieRadius(die.type) : 0.05;
+                    const pos = isV13 ? {
+                        x: spawnPos.x + Math.cos(theta) * r,
+                        y: spawnPos.y + Math.sin(theta) * r,
+                        z: radius + (spawned * 0.003)
+                    } : {
                         x: spawnPos.x + Math.cos(theta) * r,
                         y: spawnPos.y + (spawned * 0.003),
                         z: spawnPos.z + Math.sin(theta) * r
@@ -108,13 +132,18 @@ export class DiceInteractionManager {
                         die.type,
                         die
                     );
+                    die.appearance = appearance;
 
-                    await throwEngine.spawnDiceMesh(
-                        die,
-                        appearance,
-                        notationVectors.dsnConfig.diceLibrary,
-                        workerSpecs
-                    );
+                    if (isV13) {
+                        await throwEngine.spawnDice(die, appearance);
+                    } else {
+                        await throwEngine.spawnDiceMesh(
+                            die,
+                            appearance,
+                            notationVectors.dsnConfig.diceLibrary,
+                            workerSpecs
+                        );
+                    }
 
                     const dicemesh = throwEngine.diceList[throwEngine.diceList.length - 1];
                     if (dicemesh && dicemesh.parent) {
@@ -125,7 +154,7 @@ export class DiceInteractionManager {
             }
 
             throwEngine.minIterations = 0;
-            if (workerSpecs.length > 0) {
+            if (!isV13 && workerSpecs.length > 0) {
                 await throwEngine.physicsWorker.exec('createDiceBatch', workerSpecs);
             }
         }
@@ -138,15 +167,16 @@ export class DiceInteractionManager {
         const dsnBox = game.dice3d.box;
         for (const die of throwEngine.diceList) {
             die.sim = { dead: false };
-            const worldPos = die.parent ? die.parent.position : die.position;
-            await dsnBox.physicsWorker.exec("addConstraint", { id: die.id, pos: worldPos });
         }
 
-        const dsnCanvas = game.dice3d.canvas;
-        if (dsnCanvas) {
-            dsnCanvas.style.display = "";
-            dsnCanvas.style.pointerEvents = "auto";
+        if (!isV13) {
+            for (const die of throwEngine.diceList) {
+                const worldPos = die.parent ? die.parent.position : die.position;
+                await dsnBox.physicsWorker.exec("addConstraint", { id: die.id, pos: worldPos });
+            }
         }
+
+
 
         dsnBox.isVisible = true;
         dsnBox.last_time = 0;
@@ -186,14 +216,14 @@ export class DiceInteractionManager {
             try {
                 let soundSurface = "plastic";
                 try {
-                    soundSurface = game.settings.get("dice-so-nice", "soundSurface") || "plastic";
+                    soundSurface = game.settings.get("dice-so-nice", "soundSurface") || game.settings.get("dice-so-nice", "soundsSurface") || "plastic";
                 } catch (e) {
                     console.warn("Natural Roll | Failed to get soundSurface setting from dice-so-nice, falling back to 'plastic'. Error:", e.message);
                 }
                 
                 let volume = 0.5;
                 try {
-                    volume = game.settings.get("dice-so-nice", "soundVolume") ?? 0.5;
+                    volume = game.settings.get("dice-so-nice", "soundVolume") ?? game.settings.get("dice-so-nice", "soundsVolume") ?? 0.5;
                 } catch (e) {
                     console.warn("Natural Roll | Failed to get soundVolume setting from dice-so-nice, falling back to 0.5. Error:", e.message);
                 }
@@ -202,8 +232,9 @@ export class DiceInteractionManager {
                     throwEngine.soundManager.play("collision", volume);
                 } else {
                     const src = `modules/dice-so-nice/sfx/sounds/${soundSurface}/collision.wav`;
-                    if (typeof AudioHelper !== "undefined") {
-                        AudioHelper.play({ src, volume }, false);
+                    const audioHelperClass = globalThis.foundry?.audio?.AudioHelper || globalThis.AudioHelper;
+                    if (audioHelperClass) {
+                        audioHelperClass.play({ src, volume }, false);
                     } else if (game.audio && typeof game.audio.play === "function") {
                         game.audio.play(src, { volume });
                     }
@@ -221,25 +252,43 @@ export class DiceInteractionManager {
                 const positions = {};
                 interactionState.heldDice.forEach((die, index) => {
                     const goldenAngle = 137.5 * (Math.PI / 180);
-                    const c = game.settings.get("natural-roll", "diceSpread") ?? 0.06;
+                    const c = (game.settings.get("natural-roll", "diceSpread") ?? 0.06) * (isV13 ? 4200 : 1.0);
                     const r = c * Math.sqrt(index);
                     const theta = index * goldenAngle;
-                    positions[die.id] = {
-                        x: pos3D.x + Math.cos(theta) * r,
-                        y: pos3D.y,
-                        z: pos3D.z + Math.sin(theta) * r
-                    };
+                    if (isV13) {
+                        const radius = getDieRadius(die.type);
+                        const targetX = pos3D.x + Math.cos(theta) * r;
+                        const targetY = pos3D.y + Math.sin(theta) * r;
+                        const targetZ = radius + 5;
+                        if (die.parent) {
+                            die.parent.position.set(targetX, targetY, targetZ);
+                        } else {
+                            die.position.set(targetX, targetY, targetZ);
+                        }
+                    } else {
+                        const targetX = pos3D.x + Math.cos(theta) * r;
+                        const targetY = pos3D.y;
+                        const targetZ = pos3D.z + Math.sin(theta) * r;
+                        positions[die.id] = {
+                            x: targetX,
+                            y: targetY,
+                            z: targetZ
+                        };
+                    }
                 });
-                await throwEngine.physicsWorker.exec("updateConstraint", { positions });
+                if (isV13) {
+                    throwEngine.renderScene();
+                } else {
+                    await throwEngine.physicsWorker.exec("updateConstraint", { positions });
+                }
             } catch (err) {
                 console.error("Natural Roll | Error updating constraints:", err);
             } finally {
                 isUpdatingConstraint = false;
             }
         };
-
         const isClickNearAnyDie = (clientX, clientY) => {
-            const diceScene = game.dice3d?.box?.diceScene;
+            const diceScene = game.dice3d?.box?.diceScene || game.dice3d?.box;
             if (!diceScene || !diceScene.camera) return true;
 
             const camera = diceScene.camera;
@@ -292,7 +341,7 @@ export class DiceInteractionManager {
 
             clearRollTimeout();
 
-            const pos3D = DiceInteractionManager.get3DCoords(e);
+            const pos3D = DiceInteractionManager.get3DCoords(e, isV13 ? 30 : 0.05);
             if (!pos3D) return;
 
             e.stopPropagation();
@@ -329,7 +378,7 @@ export class DiceInteractionManager {
             if (!interactionState.isDragging) return;
             if (e.pointerId !== interactionState.pointerId) return;
 
-            const pos3D = DiceInteractionManager.get3DCoords(e);
+            const pos3D = DiceInteractionManager.get3DCoords(e, isV13 ? 30 : 0.05);
             if (!pos3D) return;
 
             e.stopPropagation();
@@ -386,9 +435,9 @@ export class DiceInteractionManager {
                 const distPixels = Math.sqrt(dxPixels * dxPixels + dyPixels * dyPixels);
 
                 const posStart3D = refPoint.pos3D;
-                const posEnd3D = DiceInteractionManager.get3DCoords(e) || posStart3D;
+                const posEnd3D = DiceInteractionManager.get3DCoords(e, isV13 ? 30 : 0.05) || posStart3D;
                 const dx3D = posEnd3D.x - posStart3D.x;
-                const dz3D = posEnd3D.z - posStart3D.z;
+                const dz3D = isV13 ? (posEnd3D.y - posStart3D.y) : (posEnd3D.z - posStart3D.z);
                 const dist3D = Math.sqrt(dx3D * dx3D + dz3D * dz3D);
 
                 let tossSpeed = 0.4;
@@ -420,14 +469,19 @@ export class DiceInteractionManager {
 
                 const lift = 0.2 + (tossSpeed / 5.0) * 0.9;
 
-                const velocity = {
+                const v13Scale = 2000;
+                const velocity = isV13 ? {
+                    x: dirX * tossSpeed * v13Scale,
+                    y: dirZ * tossSpeed * v13Scale,
+                    z: lift * v13Scale
+                } : {
                     x: dirX * tossSpeed,
                     y: lift,
                     z: dirZ * tossSpeed
                 };
 
                 const spinMultiplier = 0.35 + (tossSpeed / 5.0) * 0.65;
-                const baseSpin = 15 + Math.random() * 5;
+                const baseSpin = isV13 ? (25 + Math.random() * 10) : (15 + Math.random() * 5);
 
                 log("User flicked/tossed dice.", {
                     direction: { x: dirX, z: dirZ },
@@ -439,33 +493,77 @@ export class DiceInteractionManager {
                 throwEngine.rolling = true;
                 throwEngine._simulationReady = false;
 
-                await throwEngine.physicsWorker.exec("removeConstraint", {
-                    ids: interactionState.heldDice.map(d => d.id)
-                });
+                if (isV13) {
+                    await throwEngine.physicsWorker.exec("removeDice", interactionState.heldDice.map(d => d.id));
+                    for (const die of interactionState.heldDice) {
+                        const pos = die.parent ? die.parent.position : die.position;
+                        log("Recreating v13 die", { id: die.id, pos, velocity });
+                        const vectordata = {
+                            type: die.notation.type,
+                            pos: { x: pos.x, y: pos.y, z: pos.z },
+                            velocity: velocity,
+                            angle: {
+                                x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
+                            },
+                            axis: { x: 0, y: 0, z: 0, a: 0 }
+                        };
+                        const diceobj = throwEngine.dicefactory.get(die.notation.type);
+                        let mass = diceobj.mass;
+                        const material = die.appearance?.material || "plastic";
+                        switch (material) {
+                            case "metal": mass *= 7; break;
+                            case "wood": mass *= 0.65; break;
+                            case "glass": mass *= 2; break;
+                            case "stone": mass *= 1.5; break;
+                        }
+                        await throwEngine.physicsWorker.exec('createDice', {
+                            id: die.id,
+                            shape: diceobj.shape,
+                            material: material,
+                            vectordata: vectordata,
+                            mass: mass,
+                            startAtIteration: 0,
+                            options: die.options
+                        });
+                        await throwEngine.physicsWorker.exec('addDice', die.id);
+                    }
+                } else {
+                    await throwEngine.physicsWorker.exec("removeConstraint", {
+                        ids: interactionState.heldDice.map(d => d.id)
+                    });
+                }
 
                 const impulses = {};
-                for (const d of interactionState.heldDice) {
-                    impulses[d.id] = {
-                        velocity,
-                        angularVelocity: {
-                            x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
-                            y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
-                            z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
-                        }
-                    };
+                if (!isV13) {
+                    for (const d of interactionState.heldDice) {
+                        impulses[d.id] = {
+                            velocity,
+                            angularVelocity: {
+                                x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
+                            }
+                        };
+                    }
                 }
 
                 if (dsnCanvas) {
                     dsnCanvas.style.pointerEvents = "none";
                 }
 
-                const simResult = await throwEngine.physicsWorker.exec('simulateThrow', {
+                const simParams = {
                     minIterations: throwEngine.minIterations,
                     nbIterationsBetweenRolls: throwEngine.nbIterationsBetweenRolls,
                     framerate: throwEngine.framerate,
-                    canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped"),
-                    impulses: impulses
-                });
+                    canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped")
+                };
+                if (!isV13) {
+                    simParams.impulses = impulses;
+                }
+
+                const simResult = await throwEngine.physicsWorker.exec('simulateThrow', simParams);
 
                 if (!simResult) {
                     console.error("Natural Roll | simulateThrow failed");
@@ -496,7 +594,11 @@ export class DiceInteractionManager {
 
                 for (const dicemesh of throwEngine.diceList) {
                     if (dicemesh) {
-                        throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
+                        if (isV13) {
+                            await throwEngine.swapDiceFace(dicemesh);
+                        } else {
+                            throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
+                        }
                         dicemesh.result = null;
                     }
                 }
@@ -525,47 +627,95 @@ export class DiceInteractionManager {
                 const tossSpeed = 1.5;
                 const lift = 0.5;
 
-                const velocity = {
+                const v13Scale = 2000;
+                const velocity = isV13 ? {
+                    x: dirX * tossSpeed * v13Scale,
+                    y: dirZ * tossSpeed * v13Scale,
+                    z: lift * v13Scale
+                } : {
                     x: dirX * tossSpeed,
                     y: lift,
                     z: dirZ * tossSpeed
                 };
 
                 const spinMultiplier = 0.65;
-                const baseSpin = 15 + Math.random() * 5;
+                const baseSpin = isV13 ? (25 + Math.random() * 10) : (15 + Math.random() * 5);
 
                 log("Auto-roll timeout triggered. Rolling dice automatically.");
                 
                 throwEngine.rolling = true;
                 throwEngine._simulationReady = false;
 
-                await throwEngine.physicsWorker.exec("removeConstraint", {
-                    ids: interactionState.heldDice.map(d => d.id)
-                });
+                if (isV13) {
+                    await throwEngine.physicsWorker.exec("removeDice", interactionState.heldDice.map(d => d.id));
+                    for (const die of interactionState.heldDice) {
+                        const pos = die.parent ? die.parent.position : die.position;
+                        const vectordata = {
+                            type: die.notation.type,
+                            pos: { x: pos.x, y: pos.y, z: pos.z },
+                            velocity: velocity,
+                            angle: {
+                                x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
+                            },
+                            axis: { x: 0, y: 0, z: 0, a: 0 }
+                        };
+                        const diceobj = throwEngine.dicefactory.get(die.notation.type);
+                        let mass = diceobj.mass;
+                        const material = die.appearance?.material || "plastic";
+                        switch (material) {
+                            case "metal": mass *= 7; break;
+                            case "wood": mass *= 0.65; break;
+                            case "glass": mass *= 2; break;
+                            case "stone": mass *= 1.5; break;
+                        }
+                        await throwEngine.physicsWorker.exec('createDice', {
+                            id: die.id,
+                            shape: diceobj.shape,
+                            material: material,
+                            vectordata: vectordata,
+                            mass: mass,
+                            startAtIteration: 0,
+                            options: die.options
+                        });
+                        await throwEngine.physicsWorker.exec('addDice', die.id);
+                    }
+                } else {
+                    await throwEngine.physicsWorker.exec("removeConstraint", {
+                        ids: interactionState.heldDice.map(d => d.id)
+                    });
+                }
 
                 const impulses = {};
-                for (const d of interactionState.heldDice) {
-                    impulses[d.id] = {
-                        velocity,
-                        angularVelocity: {
-                            x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
-                            y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
-                            z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
-                        }
-                    };
+                if (!isV13) {
+                    for (const d of interactionState.heldDice) {
+                        impulses[d.id] = {
+                            velocity,
+                            angularVelocity: {
+                                x: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                y: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier,
+                                z: (Math.random() < 0.5 ? -1 : 1) * baseSpin * spinMultiplier
+                            }
+                        };
+                    }
                 }
 
                 if (dsnCanvas) {
                     dsnCanvas.style.pointerEvents = "none";
                 }
 
-                const simResult = await throwEngine.physicsWorker.exec('simulateThrow', {
+                const simParams = {
                     minIterations: throwEngine.minIterations,
                     nbIterationsBetweenRolls: throwEngine.nbIterationsBetweenRolls,
                     framerate: throwEngine.framerate,
-                    canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped"),
-                    impulses: impulses
-                });
+                    canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped")
+                };
+                if (!isV13) {
+                    simParams.impulses = impulses;
+                }
+
+                const simResult = await throwEngine.physicsWorker.exec('simulateThrow', simParams);
 
                 if (!simResult) {
                     console.error("Natural Roll | simulateThrow failed on auto-roll");
@@ -596,7 +746,11 @@ export class DiceInteractionManager {
 
                 for (const dicemesh of throwEngine.diceList) {
                     if (dicemesh) {
-                        throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
+                        if (isV13) {
+                            await throwEngine.swapDiceFace(dicemesh);
+                        } else {
+                            throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
+                        }
                         dicemesh.result = null;
                     }
                 }
@@ -650,34 +804,58 @@ export class DiceInteractionManager {
         window.addEventListener("pointermove", updateCursor);
     }
 
-    static get3DCoords(event) {
-        const dsnCanvas = game.dice3d?.canvas;
+    static getDieRadius(dice) {
+        if (dice.shape === 'd4') return 0.6;
+        if (dice.shape === 'd6') return 0.7;
+        if (dice.shape === 'd8') return 0.8;
+        if (dice.shape === 'd10' || dice.shape === 'd100') return 0.9;
+        if (dice.shape === 'd12') return 1.0;
+        if (dice.shape === 'd20') return 1.1;
+        return 0.8;
+    }
+
+    static get3DCoords(event, heightPlane = 0.05) {
+        const dsnCanvas = game.dice3d?.canvas?.[0] || game.dice3d?.canvas;
         if (!dsnCanvas) return null;
 
         const rect = dsnCanvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return null;
+
         const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-        const diceScene = game.dice3d.box?.diceScene;
-        if (!diceScene) return null;
+        const diceScene = game.dice3d?.box?.diceScene || game.dice3d?.box;
+        if (!diceScene || !diceScene.raycaster || !diceScene.camera) return null;
 
         diceScene.raycaster.setFromCamera({ x: ndcX, y: ndcY }, diceScene.camera);
 
-        const GRAB_LIFT_EPHEMERAL = 0.05;
-        const ray = diceScene.raycaster.ray;
-        const Oy = ray.origin.y;
-        const Dy = ray.direction.y;
-        
-        if (Math.abs(Dy) < 1e-6) return null;
-        
-        const t = (GRAB_LIFT_EPHEMERAL - Oy) / Dy;
-        const hit = {
-            x: ray.origin.x + t * ray.direction.x,
-            y: GRAB_LIFT_EPHEMERAL,
-            z: ray.origin.z + t * ray.direction.z
-        };
-
-        return hit;
+        const isV13 = !game.dice3d.box.throwEngine;
+        if (isV13) {
+            const ray = diceScene.raycaster.ray;
+            const Oz = ray.origin.z;
+            const Dz = ray.direction.z;
+            
+            if (Math.abs(Dz) < 1e-6) return null;
+            
+            const t = (heightPlane - Oz) / Dz;
+            return {
+                x: ray.origin.x + t * ray.direction.x,
+                y: ray.origin.y + t * ray.direction.y,
+                z: heightPlane
+            };
+        } else {
+            const ray = diceScene.raycaster.ray;
+            const Oy = ray.origin.y;
+            const Dy = ray.direction.y;
+            
+            if (Math.abs(Dy) < 1e-6) return null;
+            
+            const t = (heightPlane - Oy) / Dy;
+            return {
+                x: ray.origin.x + t * ray.direction.x,
+                y: heightPlane,
+                z: ray.origin.z + t * ray.direction.z
+            };
+        }
     }
 }
-

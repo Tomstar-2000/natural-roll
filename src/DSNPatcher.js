@@ -28,45 +28,78 @@ export class DSNPatcher {
     }
 
     static patchDSNSync() {
-        if (!game.dice3d?.box?.throwEngine) return;
-        const throwEngine = game.dice3d.box.throwEngine;
-        if (throwEngine._patchedForNaturalRoll) return;
+        if (!game.dice3d?.box) return;
+        const throwEngine = game.dice3d.box.throwEngine || game.dice3d.box;
+        const engineProto = throwEngine.constructor.prototype;
+        if (engineProto._patchedForNaturalRoll) return;
 
-        throwEngine._patchedForNaturalRoll = true;
-        log("Patching throwEngine methods (sync).");
+        engineProto._patchedForNaturalRoll = true;
+        log("Patching throwEngine prototype methods (sync).");
 
-        const originalStartUnifiedBatch = throwEngine.startUnifiedBatch;
-        throwEngine.startUnifiedBatch = async function(throws, persistentThrowData, callback) {
-            if (!game.settings.get("natural-roll", "enabled")) {
-                return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
-            }
+        if (engineProto.startUnifiedBatch) {
+            const originalStartUnifiedBatch = engineProto.startUnifiedBatch;
+            engineProto.startUnifiedBatch = async function(throws, persistentThrowData, callback) {
+                if (!game.settings.get("natural-roll", "enabled")) {
+                    return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
+                }
 
-            const isManual = throws.some(t => t.isNaturalRollManual);
+                const isManual = throws.some(t => t.isNaturalRollManual);
 
-            if (!isManual) {
-                log("Bypassing manual roll (auto-roll matched).");
-                return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
-            }
+                if (!isManual) {
+                    log("Bypassing manual roll (auto-roll matched).");
+                    return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
+                }
 
-            log("Triggering manual hold-and-roll screen.");
-            await DiceInteractionManager.handleHoldAndRoll(this, throws, callback);
-        };
+                log("Triggering manual hold-and-roll screen.");
+                await DiceInteractionManager.handleHoldAndRoll(this, throws, callback);
+            };
+        } else if (engineProto.start_throw) {
+            const originalStartThrow = engineProto.start_throw;
+            engineProto.start_throw = async function(throws, callback) {
+                if (!game.settings.get("natural-roll", "enabled")) {
+                    return originalStartThrow.call(this, throws, callback);
+                }
+
+                const isManual = throws.some(t => t.isNaturalRollManual);
+
+                if (!isManual) {
+                    log("Bypassing manual roll (auto-roll matched).");
+                    return originalStartThrow.call(this, throws, callback);
+                }
+
+                log("Triggering manual hold-and-roll screen.");
+                await DiceInteractionManager.handleHoldAndRoll(this, throws, callback);
+            };
+        }
         
-        const originalUpdateThrowPlayback = throwEngine.updateThrowPlayback;
-        throwEngine.updateThrowPlayback = function(neededSteps) {
-            if (this._simulationReady === false) {
-                return;
-            }
-            return originalUpdateThrowPlayback.call(this, neededSteps);
-        };
+        if (engineProto.updateThrowPlayback) {
+            const originalUpdateThrowPlayback = engineProto.updateThrowPlayback;
+            engineProto.updateThrowPlayback = function(neededSteps) {
+                if (this._simulationReady === false) {
+                    return;
+                }
+                return originalUpdateThrowPlayback.call(this, neededSteps);
+            };
+        } else if (engineProto.animateThrow) {
+            const originalAnimateThrow = engineProto.animateThrow;
+            engineProto.animateThrow = function() {
+                if (this._simulationReady === false) {
+                    if (this.isVisible) {
+                        this.renderScene();
+                    }
+                    return;
+                }
+                return originalAnimateThrow.apply(this, arguments);
+            };
+        }
 
-        const originalClearDice = throwEngine.clearDice;
-        throwEngine.clearDice = function() {
+        const originalClearDice = engineProto.clearDice;
+        engineProto.clearDice = function() {
             DiceInteractionManager.cleanup(this);
             return originalClearDice.apply(this, arguments);
         };
         
-        log("Patched Dice So Nice! ThrowEngine successfully.");
+        log("Patched Dice So Nice! ThrowEngine prototype successfully.");
     }
 
     static async patchDSN() {
