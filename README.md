@@ -86,7 +86,7 @@ Each player can customize their experience in **Game Settings -> Configure Setti
 
 ## 🧩 Compatibility
 
-- **Foundry VTT**: Verified compatibility with **v11**, **v12**, **v13**, and **v14**.
+- **Foundry VTT**: Verified compatibility with **v13** and **v14**.
 - **Required Modules**: [Dice So Nice!](https://foundryvtt.com/packages/dice-so-nice) must be installed and active.
 - **Workflow Modules**: Compatible with roll automation systems like Midi-QOL.
 
