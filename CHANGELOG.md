@@ -2,6 +2,13 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.3.2] - 2026-08-12
+
+### Fixed
+
+- **DSN v14 Physics Calibration**: scaled horizontal throw velocities by `3.0` and calibrated initial rotational spin (`baseSpin` increased to `40-55` rad/s) under v14 to match modern DSN force scales, preventing dice from slowing down instantly or sliding flat.
+- **Bouncing Height Controls**: Kept the vertical lift velocity unscaled under v14 to prevent dice from flying too high in DSN v14's physics environment.
+
 ## [1.3.1] - 2026-08-09
 
 ### Added
