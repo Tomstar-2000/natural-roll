@@ -467,6 +467,7 @@ export class DiceInteractionManager {
                 const lift = 0.2 + (tossSpeed / 5.0) * 0.9;
 
                 const v13Scale = 2000;
+                const v14Scale = 3.0;
                 const velocity = isV13 ? {
                     x: dirX * tossSpeed * v13Scale,
                     y: dirZ * tossSpeed * v13Scale,
@@ -474,11 +475,11 @@ export class DiceInteractionManager {
                 } : {
                     x: dirX * tossSpeed,
                     y: lift,
-                    z: dirZ * tossSpeed
+                    z: dirZ * tossSpeed * v14Scale
                 };
 
                 const spinMultiplier = 0.35 + (tossSpeed / 5.0) * 0.65;
-                const baseSpin = isV13 ? (25 + Math.random() * 10) : (15 + Math.random() * 5);
+                const baseSpin = isV13 ? (25 + Math.random() * 10) : (40 + Math.random() * 15);
 
                 log("User flicked/tossed dice.", {
                     direction: { x: dirX, z: dirZ },
@@ -625,18 +626,19 @@ export class DiceInteractionManager {
                 const lift = 0.5;
 
                 const v13Scale = 2000;
+                const v14Scale = 3.0;
                 const velocity = isV13 ? {
                     x: dirX * tossSpeed * v13Scale,
                     y: dirZ * tossSpeed * v13Scale,
                     z: lift * v13Scale
                 } : {
-                    x: dirX * tossSpeed,
+                    x: dirX * tossSpeed * v14Scale,
                     y: lift,
-                    z: dirZ * tossSpeed
+                    z: dirZ * tossSpeed * v14Scale
                 };
 
                 const spinMultiplier = 0.65;
-                const baseSpin = isV13 ? (25 + Math.random() * 10) : (15 + Math.random() * 5);
+                const baseSpin = isV13 ? (25 + Math.random() * 10) : (40 + Math.random() * 15);
 
                 log("Auto-roll timeout triggered. Rolling dice automatically.");
                 
