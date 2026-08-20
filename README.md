@@ -74,6 +74,7 @@ Each player can customize their experience in **Game Settings -> Configure Setti
 | Setting                      | Scope | Type    | Default | Description                                                                                                             |
 | ---------------------------- | ----- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Enable Natural Roll**      | User  | Boolean | `true`  | When enabled, standard rolls will wait for you to drag and flick them on the canvas.                                    |
+| **Enable Replay**            | User  | Boolean | `true`  | When enabled, physical manual rolls by other players are replayed synchronously on your client.                         |
 | **Flick Strength**           | User  | Number  | `1.0`   | Multiplier for your flick speed (range: `0.1` to `5.0`). Increase if you want more explosive throws with less movement. |
 | **Enable Auto-Roll Timeout** | GM    | Boolean | `true`  | Automatically rolls the dice if the player does not pick them up.                                                       |
 | **Auto-Roll Timeout**        | GM    | Number  | `15`    | Time in seconds before a timeout triggers (range: `3` to `60` seconds).                                                 |
