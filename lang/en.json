@@ -15,5 +15,7 @@
   "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Play rattling/collision sound effects when shaking the dice in your hand.",
   "NATURAL_ROLL.Settings.DiceSpread.Name": "Dice Spread / Spacing",
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Adjust the spacing/spread scale of the initial dice pool (default is 0.06).",
+  "NATURAL_ROLL.Settings.EnableReplay.Name": "Enable Roll Replay",
+  "NATURAL_ROLL.Settings.EnableReplay.Hint": "Play back the actual physical dice throw trajectory of other players on your screen.",
   "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll requires the 'Dice So Nice!' module to be installed and active."
 }

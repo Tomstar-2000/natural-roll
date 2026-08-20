@@ -2,6 +2,22 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.4.0] - 2026-08-20
+
+### Added
+
+- **Capture & Trigger Process Overhaul**: Replaced the global `nextRollIsManual` flag with robust, object-level tracking. Manual state is now marked directly on the `Roll` terms (`die.options.isNaturalRollManual`) and tracked using unique group IDs (`naturalRollDieId`). Additionally, added `game.dice3d._showAnimation` hooking to detect and bypass duplicate render passes and route manual roll replication correctly.
+- **Synchronized Replay System**: Broadcasts manual rolls to remote clients, reconstructing the exact 3D physics roll animations using captured trajectory matrices (`quaternionsBuffers`, `positionsBuffers`, iterations, collisions, and landing face values) for perfect visual fidelity across players.
+- **Client Settings for Replay Control**: Added the `enableReplay` configuration setting, enabling players to toggle manual roll replay playback on or off.
+- **Additional Daggerheart System Support**: Added integration for the Daggerheart system (`daggerheart.js`), setting DSN Hope and Fear presets automatically.
+- **Still Foundry v13.351 / Dice So Nice v5.2.5 Backward Compatibility**: Added full compatibility for Foundry v13.351 and Dice So Nice v5.2.5 environments.
+
+### Fixed
+
+- **Dice Tray & Multi-Dice Replay Sync**: Prevented standard Dice So Nice socket sync from hijacking manual rolls, and prioritized mesh-specific unique suffix IDs (`${termId}-${dicedata.id}`) over shared term options. This ensures both values and physical trajectories match perfectly on remote player clients for dice tray rolls and multiple-dice pools.
+- **Foundry v13 / DSN v13 Compatibility**: Resolved v13 pointerup crashes and incorrect replay landing values by temporarily applying final quaternions and world matrix transformations, fetching calculated values with `await dicemesh.getValue()`, and bypassing default `swapDiceFace` rotation adjustments during replay.
+- **Auto-Roll Timeout Alignment**: Synced simulated face results back to the Foundry `Roll` instance during auto-roll timeouts, ensuring chat message values match the physical landing and preventing duplicate animations from playing on remote clients.
+
 ## [1.3.2] - 2026-08-12
 
 ### Fixed

@@ -15,5 +15,7 @@
   "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Joue des effets sonores de cliquetis/collision lorsque vous secouez les dés dans votre main.",
   "NATURAL_ROLL.Settings.DiceSpread.Name": "Dispersion / Espacement des Dés",
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Ajuste l'échelle d'espacement/dispersion du pool initial de dés (par défaut 0.06).",
+  "NATURAL_ROLL.Settings.EnableReplay.Name": "Activer la Rediffusion du Lancer",
+  "NATURAL_ROLL.Settings.EnableReplay.Hint": "Rejoue la trajectoire physique réelle du lancer de dés des autres joueurs sur votre écran.",
   "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll nécessite l'installation et l'activation du module 'Dice So Nice!'."
 }

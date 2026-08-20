@@ -15,5 +15,7 @@
   "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Spielt Klapper-/Kollisionsgeräusche ab, wenn Sie die Würfel in Ihrer Hand schütteln.",
   "NATURAL_ROLL.Settings.DiceSpread.Name": "Würfelverteilung / Abstand",
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Passt den Skalierungsfaktor für den Abstand/die Verteilung des anfänglichen Würfelpools an (Standardwert ist 0.06).",
-  "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll erfordert, dass das Modul 'Dice So Nice!' installiert und aktiv ist."
+  "NATURAL_ROLL.Settings.EnableReplay.Name": "Würfelwurf-Wiederholung aktivieren",
+  "NATURAL_ROLL.Settings.EnableReplay.Hint": "Spielt die tatsächliche physische Flugbahn des Würfelwurfs anderer Spieler auf Ihrem Bildschirm ab.",
+  "NATURAL_ROLL.Warnings.DsnRequired": "Natürliches Würfeln erfordert, dass das Modul 'Dice So Nice!' installiert und aktiv ist."
 }

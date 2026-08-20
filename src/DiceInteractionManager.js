@@ -1,4 +1,4 @@
-import { log } from "./utils.js";
+import { log, error } from "./utils.js";
 
 let lastPointerPos = { x: 0, y: 0 };
 if (typeof window !== "undefined") {
@@ -9,8 +9,37 @@ if (typeof window !== "undefined") {
 }
 
 export class DiceInteractionManager {
-    static cleanup(throwEngine) {
+    static recentReplays = [];
+    static recentChatMessageRolls = [];
+    static activeGrabs = new Set();
+    static lastCompletedRollTime = 0;
+
+    static cleanup(throwEngine, resolvePromise = true) {
         if (!throwEngine) return;
+
+        const isReplayActive = game.dice3d?._naturalRollReplayPrepared || game.dice3d?._naturalRollReplayActive;
+        const isReplayFinished = game.dice3d?._naturalRollReplayActive && (throwEngine.iteration >= (throwEngine.iterationsNeeded || 0));
+
+        if (!isReplayActive || isReplayFinished) {
+            if (game.dice3d) {
+                game.dice3d._naturalRollReplayPrepared = false;
+                game.dice3d._naturalRollReplayActive = false;
+            }
+            const worker = throwEngine.physicsWorker || game.dice3d?.box?.physicsWorker;
+            if (worker && worker._originalExec) {
+                worker.exec = worker._originalExec;
+                delete worker._originalExec;
+                log("Replay Interceptor: restored original worker.exec in cleanup");
+            }
+        }
+
+        if (resolvePromise) {
+            const roll = game.dice3d?._currentLocalRoll;
+            if (roll && typeof roll._naturalRollResolve === "function") {
+                roll._naturalRollResolve(roll);
+            }
+        }
+
         const state = throwEngine._naturalRollState;
         if (!state) return;
 
@@ -49,7 +78,7 @@ export class DiceInteractionManager {
         throwEngine._naturalRollState = null;
     }
 
-    static async handleHoldAndRoll(throwEngine, throws, callback) {
+    static async handleHoldAndRoll(throwEngine, throws, callback, rollingUserId) {
         if (throwEngine.rolling) return;
 
         DiceInteractionManager.cleanup(throwEngine);
@@ -58,6 +87,13 @@ export class DiceInteractionManager {
         throwEngine.throws = null;
         throwEngine.callback = null;
         throwEngine.clearDice();
+
+        log("Broadcasting manual roll grab event...");
+        const targetUserId = rollingUserId || game.user.id;
+        game.socket.emit("module.natural-roll", {
+            type: "grab",
+            user: targetUserId
+        });
 
         let countNewDice = 0;
         const maxDiceNumber = game.settings.get("dice-so-nice", "maxDiceNumber");
@@ -159,8 +195,6 @@ export class DiceInteractionManager {
             }
         }
 
-        log("Spawned dice batch:", throws);
-
         throwEngine.iteration = 0;
         throwEngine.addDiceToScene();
 
@@ -199,7 +233,8 @@ export class DiceInteractionManager {
             onPointerUp: null,
             updateCursor: null,
             lastRattleTime: 0,
-            spawnTime: performance.now()
+            spawnTime: performance.now(),
+            naturalRollId: throwEngine.naturalRollId
         };
 
         throwEngine._naturalRollState = interactionState;
@@ -279,7 +314,7 @@ export class DiceInteractionManager {
                     await throwEngine.physicsWorker.exec("updateConstraint", { positions });
                 }
             } catch (err) {
-                console.error("Natural Roll | Error updating constraints:", err);
+                error("Error updating constraints:", err);
             } finally {
                 isUpdatingConstraint = false;
             }
@@ -416,7 +451,7 @@ export class DiceInteractionManager {
             const dragStart = interactionState.dragStart;
             const moveHistory = interactionState.moveHistory;
             
-            DiceInteractionManager.cleanup(throwEngine);
+            DiceInteractionManager.cleanup(throwEngine, false);
 
             try {
                 const now = performance.now();
@@ -564,19 +599,50 @@ export class DiceInteractionManager {
                 const simResult = await throwEngine.physicsWorker.exec('simulateThrow', simParams);
 
                 if (!simResult) {
-                    console.error("Natural Roll | simulateThrow failed");
+                    error("simulateThrow failed");
                     throwEngine.rolling = false;
                     callback?.(throws);
                     return;
                 }
-
-                const { ids, quaternionsBuffers, positionsBuffers, detectedCollides, iterationsNeeded, faceValues } = simResult;
+                console.log("Natural Roll | V13 simResult keys:", Object.keys(simResult), "simResult:", simResult);
+                const { ids, quaternionsBuffers, positionsBuffers, detectedCollides, iterationsNeeded } = simResult;
                 const quaternions = quaternionsBuffers.map(buffer => new Float32Array(buffer));
                 const positions = positionsBuffers.map(buffer => new Float32Array(buffer));
 
                 throwEngine.iterationsNeeded = iterationsNeeded;
                 const idToIndex = new Map();
                 ids.forEach((id, index) => idToIndex.set(id, index));
+
+                let faceValues = simResult.faceValues;
+                if (isV13) {
+                    faceValues = {};
+                    for (const dicemesh of throwEngine.diceList) {
+                        if (dicemesh) {
+                            const index = idToIndex.get(dicemesh.id);
+                            if (index !== undefined && quaternions[index]) {
+                                const stepCount = quaternions[index].length / 4;
+                                if (stepCount > 0) {
+                                    const lastStep = stepCount - 1;
+                                    const origQ = dicemesh.quaternion.clone();
+                                    dicemesh.quaternion.set(
+                                        quaternions[index][lastStep * 4],
+                                        quaternions[index][lastStep * 4 + 1],
+                                        quaternions[index][lastStep * 4 + 2],
+                                        quaternions[index][lastStep * 4 + 3]
+                                    );
+                                    dicemesh.updateMatrix();
+                                    dicemesh.updateMatrixWorld(true);
+                                    const val = await dicemesh.getValue();
+                                    faceValues[dicemesh.id] = parseInt(val);
+                                    dicemesh.quaternion.copy(origQ);
+                                    dicemesh.updateMatrix();
+                                    dicemesh.updateMatrixWorld(true);
+                                }
+                            }
+                        }
+                    }
+                    simResult.faceValues = faceValues;
+                }
 
                 const ephemeralDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
                 for (const dice of ephemeralDiceList) {
@@ -590,12 +656,72 @@ export class DiceInteractionManager {
                     }
                 }
 
+                const roll = game.dice3d?._currentLocalRoll;
+                if (roll) {
+                    const rollDice = roll.dice || [];
+                    const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
+                    
+                    rollDice.forEach(term => {
+                        const termRollerId = term.options?.naturalRollDieId;
+                        if (!termRollerId) return;
+
+                        const termMeshes = localDiceList.filter(mesh => mesh.userData?.rollerId?.startsWith(termRollerId));
+                        termMeshes.forEach((mesh, index) => {
+                            const finalVal = faceValues[mesh.id];
+                            if (finalVal !== undefined && term.results?.[index]) {
+                                term.results[index].result = finalVal;
+                            }
+                        });
+                    });
+
+                    roll.terms.forEach(t => {
+                        if (t.results) {
+                            t._total = t.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
+                        }
+                    });
+
+                    if (typeof roll._evaluateTotal === "function") {
+                        roll._total = roll._evaluateTotal();
+                    } else {
+                        roll._total = roll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
+                    }
+
+                    DiceInteractionManager.lastCompletedRollTime = Date.now();
+                }
+
+                if (throws) {
+                    const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
+                    throws.forEach(t => {
+                        if (t.dice) {
+                            t.dice.forEach(d => {
+                                const dicemesh = localDiceList.find(mesh => 
+                                    mesh.userData?.rollerId === `${d.options?.naturalRollDieId}-${d.id}` || 
+                                    mesh.userData?.rollerId === d.options?.naturalRollDieId || 
+                                    mesh.id === d.id
+                                );
+                                if (dicemesh) {
+                                    const finalVal = faceValues[dicemesh.id];
+                                    if (finalVal !== undefined && finalVal !== null) {
+                                        d.result = finalVal;
+                                        d.resultLabel = finalVal.toString();
+                                        dicemesh.result = finalVal;
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+
                 for (const dicemesh of throwEngine.diceList) {
                     if (dicemesh) {
+                        const finalVal = faceValues[dicemesh.id];
+                        if (finalVal !== undefined) {
+                            dicemesh.forcedResult = finalVal;
+                        }
                         if (isV13) {
                             await throwEngine.swapDiceFace(dicemesh);
                         } else {
-                            throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
+                            throwEngine.swapDiceFace(dicemesh, finalVal);
                         }
                         dicemesh.result = null;
                     }
@@ -608,10 +734,26 @@ export class DiceInteractionManager {
 
                 throwEngine.running = (new Date()).getTime();
                 throwEngine._simulationReady = true;
+
+                DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+                DiceInteractionManager.recentReplays.push({
+                    user: game.user.id,
+                    results: Object.values(simResult.faceValues || {}).sort(),
+                    timestamp: Date.now()
+                });
+
+                DiceInteractionManager.broadcastRoll(throwEngine, throws, simResult, interactionState.naturalRollId);
+                if (roll && typeof roll._naturalRollResolve === "function") {
+                    roll._naturalRollResolve(roll);
+                }
             } catch (err) {
-                console.error("Natural Roll | Error resolving pointerup simulation:", err);
+                error("Error resolving pointerup simulation:", err);
                 throwEngine.rolling = false;
                 callback?.(throws);
+                const roll = game.dice3d?._currentLocalRoll;
+                if (roll && typeof roll._naturalRollResolve === "function") {
+                    roll._naturalRollResolve(roll);
+                }
             }
         };
 
@@ -717,19 +859,83 @@ export class DiceInteractionManager {
                 const simResult = await throwEngine.physicsWorker.exec('simulateThrow', simParams);
 
                 if (!simResult) {
-                    console.error("Natural Roll | simulateThrow failed on auto-roll");
+                    error("simulateThrow failed on auto-roll");
                     throwEngine.rolling = false;
                     callback?.(throws);
                     return;
                 }
 
-                const { ids, quaternionsBuffers, positionsBuffers, detectedCollides, iterationsNeeded, faceValues } = simResult;
+                const { ids, quaternionsBuffers, positionsBuffers, detectedCollides, iterationsNeeded } = simResult;
                 const quaternions = quaternionsBuffers.map(buffer => new Float32Array(buffer));
                 const positions = positionsBuffers.map(buffer => new Float32Array(buffer));
 
                 throwEngine.iterationsNeeded = iterationsNeeded;
                 const idToIndex = new Map();
                 ids.forEach((id, index) => idToIndex.set(id, index));
+
+                let faceValues = simResult.faceValues;
+                if (isV13) {
+                    faceValues = {};
+                    for (const dicemesh of throwEngine.diceList) {
+                        if (dicemesh) {
+                            const index = idToIndex.get(dicemesh.id);
+                            if (index !== undefined && quaternions[index]) {
+                                const stepCount = quaternions[index].length / 4;
+                                if (stepCount > 0) {
+                                    const lastStep = stepCount - 1;
+                                    const origQ = dicemesh.quaternion.clone();
+                                    dicemesh.quaternion.set(
+                                        quaternions[index][lastStep * 4],
+                                        quaternions[index][lastStep * 4 + 1],
+                                        quaternions[index][lastStep * 4 + 2],
+                                        quaternions[index][lastStep * 4 + 3]
+                                    );
+                                    dicemesh.updateMatrix();
+                                    dicemesh.updateMatrixWorld(true);
+                                    const val = await dicemesh.getValue();
+                                    faceValues[dicemesh.id] = parseInt(val);
+                                    dicemesh.quaternion.copy(origQ);
+                                    dicemesh.updateMatrix();
+                                    dicemesh.updateMatrixWorld(true);
+                                }
+                            }
+                        }
+                    }
+                    simResult.faceValues = faceValues;
+                }
+
+                const roll = game.dice3d?._currentLocalRoll;
+                if (roll) {
+                    const rollDice = roll.dice || [];
+                    const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
+                    
+                    rollDice.forEach(term => {
+                        const termRollerId = term.options?.naturalRollDieId;
+                        if (!termRollerId) return;
+
+                        const termMeshes = localDiceList.filter(mesh => mesh.userData?.rollerId?.startsWith(termRollerId));
+                        termMeshes.forEach((mesh, index) => {
+                            const finalVal = faceValues[mesh.id];
+                            if (finalVal !== undefined && finalVal !== null && term.results?.[index]) {
+                                term.results[index].result = finalVal;
+                            }
+                        });
+                    });
+
+                    roll.terms.forEach(t => {
+                        if (t.results) {
+                            t._total = t.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
+                        }
+                    });
+
+                    if (typeof roll._evaluateTotal === "function") {
+                        roll._total = roll._evaluateTotal();
+                    } else {
+                        roll._total = roll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
+                    }
+                }
+
+
 
                 const ephemeralDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
                 for (const dice of ephemeralDiceList) {
@@ -761,8 +967,19 @@ export class DiceInteractionManager {
 
                 throwEngine.running = (new Date()).getTime();
                 throwEngine._simulationReady = true;
+
+                DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+                DiceInteractionManager.recentReplays.push({
+                    user: game.user.id,
+                    results: Object.values(simResult.faceValues || {}).sort(),
+                    timestamp: Date.now()
+                });
+
+                DiceInteractionManager.lastCompletedRollTime = Date.now();
+
+                DiceInteractionManager.broadcastRoll(throwEngine, throws, simResult, interactionState.naturalRollId);
             } catch (err) {
-                console.error("Natural Roll | Error executing auto-roll simulation:", err);
+                error("Error executing auto-roll simulation:", err);
                 throwEngine.rolling = false;
                 callback?.(throws);
             }
@@ -856,5 +1073,268 @@ export class DiceInteractionManager {
                 z: ray.origin.z + t * ray.direction.z
             };
         }
+    }
+
+    static broadcastRoll(throwEngine, throws, simResult, naturalRollId) {
+        if (!game.socket) return;
+        
+        try {
+            const { ids, quaternionsBuffers, positionsBuffers, detectedCollides, iterationsNeeded, faceValues, deads, finalQuaternions } = simResult;
+            
+            const localDiceList = [...(throwEngine.diceList || []), ...(throwEngine.deadDiceList || [])];
+
+            const trajectories = ids.map((id, index) => {
+                const qArr = Array.from(new Float32Array(quaternionsBuffers[index]));
+                const pArr = Array.from(new Float32Array(positionsBuffers[index]));
+
+                const dicemesh = localDiceList.find(d => d.id === id);
+                const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || id;
+
+                return {
+                    id: rollerId,
+                    quaternions: qArr,
+                    positions: pArr
+                };
+            });
+
+            const mappedFaceValues = {};
+            for (const [localId, val] of Object.entries(faceValues || {})) {
+                const dicemesh = localDiceList.find(d => d.id === Number(localId));
+                const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || localId;
+                mappedFaceValues[rollerId] = val;
+            }
+
+            const mappedFinalQuaternions = {};
+            for (const [localId, val] of Object.entries(finalQuaternions || {})) {
+                const dicemesh = localDiceList.find(d => d.id === Number(localId));
+                const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || localId;
+                mappedFinalQuaternions[rollerId] = val;
+            }
+
+            const sanitizedThrows = throws.map(t => {
+                return {
+                    dice: (t.dice || []).map(d => {
+                        return {
+                            type: d.type,
+                            id: d.options?.naturalRollDieId ? `${d.options.naturalRollDieId}-${d.id}` : d.id,
+                            result: d.result,
+                            resultLabel: d.resultLabel,
+                            fvttResult: d.fvttResult,
+                            vectors: d.vectors ? {
+                                pos: d.vectors.pos,
+                                velocity: d.vectors.velocity,
+                                angle: d.vectors.angle
+                            } : undefined,
+                            options: d.options,
+                            appearance: d.appearance ? {
+                                colorset: d.appearance.colorset,
+                                labelColor: d.appearance.labelColor,
+                                diceColor: d.appearance.diceColor,
+                                outlineColor: d.appearance.outlineColor,
+                                edgeColor: d.appearance.edgeColor,
+                                material: d.appearance.material,
+                                font: d.appearance.font,
+                                foreground: d.appearance.foreground,
+                                background: d.appearance.background,
+                                outline: d.appearance.outline,
+                                edge: d.appearance.edge,
+                                texture: d.appearance.texture,
+                                fontScale: d.appearance.fontScale
+                            } : undefined
+                        };
+                    }),
+                    dsnConfig: t.dsnConfig ? {
+                        appearance: t.dsnConfig.appearance,
+                        diceLibrary: t.dsnConfig.diceLibrary
+                    } : undefined,
+                    isNaturalRollReplay: true,
+                    isNaturalRollManual: true
+                };
+            });
+
+            const payload = {
+                user: game.user.id,
+                naturalRollId,
+                throws: sanitizedThrows,
+                trajectories,
+                detectedCollides,
+                iterationsNeeded,
+                faceValues: mappedFaceValues,
+                deads: deads ? Array.from(deads) : undefined,
+                finalQuaternions: mappedFinalQuaternions,
+                screenWidth: game.dice3d?.canvas?.clientWidth || window.innerWidth,
+                screenHeight: game.dice3d?.canvas?.clientHeight || window.innerHeight
+            };
+
+            log("Broadcasting manual roll replay payload to other players...");
+            game.socket.emit("module.natural-roll", payload);
+        } catch (err) {
+            error("Error broadcasting roll replay:", err);
+        }
+    }
+
+    static handleGrab(payload) {
+        if (payload.user === game.user.id) return;
+        log("Received manual roll grab event from user:", payload.user);
+        DiceInteractionManager.activeGrabs = DiceInteractionManager.activeGrabs || new Set();
+        DiceInteractionManager.activeGrabs.add(payload.user);
+    }
+
+    static handleReplay(payload) {
+        if (!game.dice3d) return;
+        if (payload.user === game.user.id) return;
+
+        if (DiceInteractionManager.activeGrabs) {
+            DiceInteractionManager.activeGrabs.delete(payload.user);
+        }
+
+        if (!game.settings.get("natural-roll", "enableReplay")) {
+            log("Replay is disabled by user settings, ignoring playback but caching completed timestamp.");
+            DiceInteractionManager.lastCompletedRollTime = Date.now();
+            return;
+        }
+
+        log("Received manual roll replay payload from user:", payload.user);
+
+        const replayResults = Object.values(payload.faceValues || {}).sort();
+        const now = Date.now();
+
+        DiceInteractionManager.recentChatMessageRolls = DiceInteractionManager.recentChatMessageRolls || [];
+        const matchedChatIndex = DiceInteractionManager.recentChatMessageRolls.findIndex(chat => {
+            return JSON.stringify(chat.results) === JSON.stringify(replayResults) &&
+                   (now - chat.timestamp) < 5000;
+        });
+
+        if (matchedChatIndex !== -1) {
+            DiceInteractionManager.recentChatMessageRolls.splice(matchedChatIndex, 1);
+            log("Bypassing socket replay: ChatMessage animation has already played.");
+            return;
+        }
+
+        DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+        DiceInteractionManager.recentReplays.push({
+            user: payload.user,
+            results: replayResults,
+            timestamp: now
+        });
+
+        const throws = payload.throws;
+        for (const t of throws) {
+            t.isNaturalRollReplay = true;
+            t.replayPayload = payload;
+        }
+
+        const showData = {
+            throws: throws,
+            isNaturalRollReplay: true
+        };
+        
+        const rollingUser = game.users.get(payload.user);
+        game.dice3d.show(showData, rollingUser || null, false);
+    }
+
+    static prepareReplayIntercept(throwEngine, replayPayload) {
+        const worker = throwEngine.physicsWorker || game.dice3d?.box?.physicsWorker;
+        if (!worker) return;
+        
+        log("Replay Interceptor: preparing to return mock simulateThrow result");
+        if (game.dice3d) {
+            game.dice3d._naturalRollReplayPrepared = true;
+            game.dice3d._naturalRollReplayActive = false;
+        }
+        if (!worker._originalExec) {
+            worker._originalExec = worker.exec;
+        }
+
+        worker.exec = async function(method, params) {
+            if (method === 'simulateThrow') {
+                if (game.dice3d) {
+                    game.dice3d._naturalRollReplayPrepared = false;
+                    game.dice3d._naturalRollReplayActive = true;
+                }
+                const localDiceList = [...(throwEngine.diceList || []), ...(throwEngine.deadDiceList || [])];
+                const localIds = localDiceList.map(d => d.id);
+                
+                const faceValues = {};
+                localDiceList.forEach(dicemesh => {
+                    const rollerId = dicemesh.userData?.rollerId;
+                    if (rollerId !== undefined) {
+                        faceValues[dicemesh.id] = replayPayload.faceValues[rollerId];
+                    }
+                });
+
+                const finalQuaternions = {};
+                localDiceList.forEach(dicemesh => {
+                    const rollerId = dicemesh.userData?.rollerId;
+                    if (rollerId !== undefined) {
+                        finalQuaternions[dicemesh.id] = replayPayload.finalQuaternions?.[rollerId];
+                    }
+                });
+
+                log("Replay Interceptor: returning mock simulateThrow result", {
+                    localIds,
+                    mappedDice: localDiceList.map(d => ({ id: d.id, rollerId: d.userData?.rollerId, type: d.notation?.type })),
+                    trajectoryIds: replayPayload.trajectories.map(t => t.id),
+                    faceValues,
+                    finalQuaternionsKeys: Object.keys(finalQuaternions)
+                });
+
+                const rollerWidth = replayPayload.screenWidth || 1920;
+                const rollerHeight = replayPayload.screenHeight || 1080;
+                const receiverWidth = game.dice3d?.canvas?.clientWidth || window.innerWidth;
+                const receiverHeight = game.dice3d?.canvas?.clientHeight || window.innerHeight;
+                
+                const scaleX = receiverWidth / rollerWidth;
+                const scaleY = receiverHeight / rollerHeight;
+                const scale = Math.min(scaleX, scaleY);
+
+                const quaternionsBuffers = [];
+                const positionsBuffers = [];
+                const deads = [];
+
+                localIds.forEach(localId => {
+                    const dicemesh = localDiceList.find(d => d.id === localId);
+                    const rollerId = dicemesh?.userData?.rollerId;
+                    const rollerIndex = replayPayload.trajectories.findIndex(t => t.id === rollerId);
+                    
+                    if (rollerIndex !== -1) {
+                        const trajectory = replayPayload.trajectories[rollerIndex];
+                        quaternionsBuffers.push(new Float32Array(trajectory.quaternions).buffer);
+                        
+                        const posArray = new Float32Array(trajectory.positions);
+                        for (let i = 0; i < posArray.length; i++) {
+                            posArray[i] *= scale;
+                        }
+                        positionsBuffers.push(posArray.buffer);
+                        
+                        deads.push(replayPayload.deads?.[rollerIndex] ?? false);
+                    } else {
+                        quaternionsBuffers.push(new Float32Array(1001 * 4).buffer);
+                        positionsBuffers.push(new Float32Array(1001 * 3).buffer);
+                        deads.push(false);
+                    }
+                });
+                
+                throwEngine.running = (new Date()).getTime();
+                throwEngine._simulationReady = true;
+
+                return {
+                    ids: localIds,
+                    quaternionsBuffers,
+                    positionsBuffers,
+                    detectedCollides: replayPayload.detectedCollides,
+                    iterationsNeeded: replayPayload.iterationsNeeded,
+                    faceValues: faceValues,
+                    deads,
+                    finalQuaternions: finalQuaternions
+                };
+            }
+
+            if (method === 'playStep') {
+                return { ids: [], worldAsleep: true };
+            }
+
+            return worker._originalExec.call(this, method, params);
+        };
     }
 }

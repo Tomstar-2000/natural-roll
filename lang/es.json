@@ -15,5 +15,7 @@
   "NATURAL_ROLL.Settings.EnableRattleSfx.Hint": "Reproduce efectos de sonido de traqueteo/colisión al agitar los dados en la mano.",
   "NATURAL_ROLL.Settings.DiceSpread.Name": "Dispersión / Espaciado de Dados",
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Ajusta la escala de espaciado/dispersión del grupo inicial de dados (por defecto es 0.06).",
+  "NATURAL_ROLL.Settings.EnableReplay.Name": "Activar Reproducción de Tiro",
+  "NATURAL_ROLL.Settings.EnableReplay.Hint": "Reproduce la trayectoria física exacta del lanzamiento de dados de otros jugadores en tu pantalla.",
   "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll requiere que el módulo 'Dice So Nice!' esté instalado y activo."
 }
