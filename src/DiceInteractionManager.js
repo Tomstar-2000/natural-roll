@@ -24,6 +24,11 @@ export class DiceInteractionManager {
             if (game.dice3d) {
                 game.dice3d._naturalRollReplayPrepared = false;
                 game.dice3d._naturalRollReplayActive = false;
+                if (game.dice3d._activeReplayResolve) {
+                    game.dice3d._activeReplayResolve();
+                    game.dice3d._activeReplayResolve = null;
+                    game.dice3d._activeReplayPromise = null;
+                }
             }
             const worker = throwEngine.physicsWorker || game.dice3d?.box?.physicsWorker;
             if (worker && worker._originalExec) {
@@ -33,7 +38,7 @@ export class DiceInteractionManager {
             }
         }
 
-        if (resolvePromise) {
+        if (resolvePromise && !throwEngine._naturalRollBypassResolveOnClear) {
             const roll = game.dice3d?._currentLocalRoll;
             if (roll && typeof roll._naturalRollResolve === "function") {
                 roll._naturalRollResolve(roll);
@@ -81,6 +86,7 @@ export class DiceInteractionManager {
     static async handleHoldAndRoll(throwEngine, throws, callback, rollingUserId) {
         if (throwEngine.rolling) return;
 
+        throwEngine._naturalRollBypassResolveOnClear = true;
         DiceInteractionManager.cleanup(throwEngine);
 
         throwEngine._simulationReady = false;
@@ -732,10 +738,9 @@ export class DiceInteractionManager {
                 }
                 const isBlind = checkRollMode === "blind" || checkRollMode === "blindroll" || roll?.options?.blind || globalThis._naturalRollMessageVisibility?.blind;
                 if (isBlind && !game.user.isGM) {
-                    log("Blind roll: immediately clearing dice and hiding canvas for non-GM rolling user.");
-                    
                     DiceInteractionManager.broadcastRoll(throwEngine, throws, simResult, interactionState.naturalRollId);
 
+                    throwEngine._naturalRollBypassResolveOnClear = true;
                     throwEngine.clearDice();
                     throwEngine.rolling = false;
                     
@@ -757,9 +762,24 @@ export class DiceInteractionManager {
                         }
                     }
 
-                    if (roll && typeof roll._naturalRollResolve === "function") {
-                        roll._naturalRollResolve(roll);
+                    let stepInterval = 16.67;
+                    const fr = throwEngine.framerate;
+                    if (fr) {
+                        if (fr > 50) {
+                            stepInterval = 1000 / fr;
+                        } else if (fr < 0.1) {
+                            stepInterval = fr * 1000;
+                        } else {
+                            stepInterval = fr;
+                        }
                     }
+                    const durationMs = (iterationsNeeded || 150) * stepInterval + 200;
+                    setTimeout(() => {
+                        if (roll && typeof roll._naturalRollResolve === "function") {
+                            roll._naturalRollResolve(roll);
+                        }
+                        delete throwEngine._naturalRollBypassResolveOnClear;
+                    }, durationMs);
 
                     callback?.(throws);
                     return;
@@ -796,6 +816,7 @@ export class DiceInteractionManager {
                 });
 
                 DiceInteractionManager.broadcastRoll(throwEngine, throws, simResult, interactionState.naturalRollId);
+                delete throwEngine._naturalRollBypassResolveOnClear;
                 if (roll && typeof roll._naturalRollResolve === "function") {
                     roll._naturalRollResolve(roll);
                 }
@@ -804,6 +825,7 @@ export class DiceInteractionManager {
                 throwEngine.rolling = false;
                 callback?.(throws);
                 const roll = game.dice3d?._currentLocalRoll;
+                delete throwEngine._naturalRollBypassResolveOnClear;
                 if (roll && typeof roll._naturalRollResolve === "function") {
                     roll._naturalRollResolve(roll);
                 }
@@ -1278,6 +1300,14 @@ export class DiceInteractionManager {
         for (const t of throws) {
             t.isNaturalRollReplay = true;
             t.replayPayload = payload;
+        }
+
+        if (game.dice3d) {
+            let resolveReplay;
+            game.dice3d._activeReplayPromise = new Promise(resolve => {
+                resolveReplay = resolve;
+            });
+            game.dice3d._activeReplayResolve = resolveReplay;
         }
 
         const showData = {

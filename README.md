@@ -32,6 +32,12 @@ _Player rolls are held for physical gestures, while automated rolls (like GM att
 
 <img src="docs/assets/Player%20vs%20DM%20automation%20bypass%20Demo.gif" alt="Automation Bypass Demo" width="100%" />
 
+### 4. Roll Visibility & Audience Control (Blind Roll Example)
+
+_Fully supports standard roll modes. During a Blind Roll, the dice disappear immediately on release for the player, while the GM sees the 3D replay roll in real time, synced with the chat card output._
+
+<img src="docs/assets/Visibility%20Blind%20Roll%20Example.gif" alt="Blind Roll Example" width="100%" />
+
 ---
 
 ## ✨ Features

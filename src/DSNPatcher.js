@@ -147,11 +147,12 @@ export class DSNPatcher {
             }
 
             if (game.dice3d) {
-                log("Intercepted Roll.evaluate for manual roll. Showing dice...");
                 game.dice3d._currentLocalRoll = roll;
 
                 const manualRollPromise = new Promise((resolve) => {
-                    roll._naturalRollResolve = resolve;
+                    roll._naturalRollResolve = () => {
+                        resolve(roll);
+                    };
                 });
                 try {
                     await game.dice3d.showForRoll(roll, game.user, true);
@@ -546,6 +547,9 @@ export class DSNPatcher {
 
                 if (!isRollingUser && (isManualRoll || isGrabActive) && !isReplay) {
                     log("Bypassing duplicate _showAnimation (already handled by manual roll, grab, socket replay, or replay disabled).");
+                    if (game.dice3d?._activeReplayPromise) {
+                        return game.dice3d._activeReplayPromise.then(() => false);
+                    }
                     return Promise.resolve(false);
                 }
 
