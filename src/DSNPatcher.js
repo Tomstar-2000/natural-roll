@@ -1,4 +1,4 @@
-import { log, error } from "./utils.js";
+import { log, error, getAuthorizedUsers, getAuthorizedUsersFromMessage } from "./utils.js";
 import { shouldAutoRoll as dnd5eShouldAutoRoll } from "./systems/dnd5e.js";
 import { shouldAutoRoll as daggerheartShouldAutoRoll, preEvaluate as daggerheartPreEvaluate, preEvaluateInit as daggerheartPreEvaluateInit } from "./systems/daggerheart.js";
 import { DiceInteractionManager } from "./DiceInteractionManager.js";
@@ -19,6 +19,59 @@ let nextRollIsManual = false;
 
 export class DSNPatcher {
     static init() {
+        Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
+            const clean = messageText.replace(/<[^>]*>/g, "").trim();
+            let rollMode = null;
+            if (clean.startsWith("/selfroll") || clean.startsWith("/self")) {
+                rollMode = "selfroll";
+            } else if (clean.startsWith("/gmr") || clean.startsWith("/gmroll") || clean.startsWith("/pr")) {
+                rollMode = "gmroll";
+            } else if (clean.startsWith("/br") || clean.startsWith("/blindroll")) {
+                rollMode = "blindroll";
+            }
+            
+            if (rollMode) {
+                globalThis._naturalRollMessageVisibility = {
+                    whisper: rollMode === "selfroll" ? [game.user.id] : (rollMode === "gmroll" || rollMode === "blindroll" ? game.users.filter(u => u.isGM).map(u => u.id) : null),
+                    blind: rollMode === "blindroll",
+                    rollMode: rollMode
+                };
+                setTimeout(() => {
+                    if (globalThis._naturalRollMessageVisibility?.rollMode === rollMode) {
+                        globalThis._naturalRollMessageVisibility = null;
+                    }
+                }, 15000);
+            }
+        });
+
+        const originalProcessMessage = ChatLog.prototype.processMessage;
+        if (originalProcessMessage) {
+            ChatLog.prototype.processMessage = async function(message, ...args) {
+                const clean = message.replace(/<[^>]*>/g, "").trim();
+                let rollMode = null;
+                if (clean.startsWith("/selfroll") || clean.startsWith("/self")) {
+                    rollMode = "selfroll";
+                } else if (clean.startsWith("/gmr") || clean.startsWith("/gmroll") || clean.startsWith("/pr")) {
+                    rollMode = "gmroll";
+                } else if (clean.startsWith("/br") || clean.startsWith("/blindroll")) {
+                    rollMode = "blindroll";
+                }
+                
+                if (rollMode) {
+                    globalThis._naturalRollMessageVisibility = {
+                        whisper: rollMode === "selfroll" ? [game.user.id] : (rollMode === "gmroll" || rollMode === "blindroll" ? game.users.filter(u => u.isGM).map(u => u.id) : null),
+                        blind: rollMode === "blindroll",
+                        rollMode: rollMode
+                    };
+                }
+                try {
+                    return await originalProcessMessage.call(this, message, ...args);
+                } finally {
+                    globalThis._naturalRollMessageVisibility = null;
+                }
+            };
+        }
+
         const RollTermClass = foundry.dice?.terms?.RollTerm;
         if (RollTermClass) {
             Object.defineProperty(RollTermClass.prototype, "options", {
@@ -58,10 +111,22 @@ export class DSNPatcher {
 
         const originalEvaluate = Roll.prototype.evaluate;
         Roll.prototype.evaluate = async function(options = {}) {
+            if (globalThis._naturalRollMessageVisibility) {
+                this.options = this.options || {};
+                this.options.rollMode = this.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
+                this.options.blind = this.options.blind !== undefined ? this.options.blind : globalThis._naturalRollMessageVisibility.blind;
+                this.options.whisper = this.options.whisper || globalThis._naturalRollMessageVisibility.whisper;
+            }
             if (game.system?.id === "daggerheart") {
                 daggerheartPreEvaluateInit(this);
             }
             const roll = await originalEvaluate.call(this, options);
+            if (globalThis._naturalRollMessageVisibility) {
+                roll.options = roll.options || {};
+                roll.options.rollMode = roll.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
+                roll.options.blind = roll.options.blind !== undefined ? roll.options.blind : globalThis._naturalRollMessageVisibility.blind;
+                roll.options.whisper = roll.options.whisper || globalThis._naturalRollMessageVisibility.whisper;
+            }
             if (!game.settings.get("natural-roll", "enabled")) return roll;
 
             const isAuto = shouldAutoRoll(roll);
@@ -137,7 +202,8 @@ export class DSNPatcher {
             log("Broadcasting pre-grab event from preCreateChatMessage...");
             game.socket.emit("module.natural-roll", {
                 type: "grab",
-                user: game.user.id
+                user: game.user.id,
+                authorizedUsers: getAuthorizedUsersFromMessage(message)
             });
         });
     }
@@ -340,7 +406,8 @@ export class DSNPatcher {
                     
                     game.socket.emit("module.natural-roll", {
                         type: "grab",
-                        user: rollingUserId
+                        user: rollingUserId,
+                        authorizedUsers: users || getAuthorizedUsers(roll)
                     });
                 }
 

@@ -139,6 +139,10 @@ const initReady = () => {
 
     game.socket.on("module.natural-roll", (payload) => {
         console.log("Natural Roll | Received socket event module.natural-roll:", payload);
+        if (payload.authorizedUsers && !payload.authorizedUsers.includes(game.user.id)) {
+            console.log("Natural Roll | Bypassing socket event: Current user is not authorized to see this roll.");
+            return;
+        }
         if (payload.type === "grab") {
             DiceInteractionManager.handleGrab(payload);
         } else {

@@ -1,4 +1,4 @@
-import { log, error } from "./utils.js";
+import { log, error, getAuthorizedUsers } from "./utils.js";
 
 let lastPointerPos = { x: 0, y: 0 };
 if (typeof window !== "undefined") {
@@ -90,9 +90,12 @@ export class DiceInteractionManager {
 
         log("Broadcasting manual roll grab event...");
         const targetUserId = rollingUserId || game.user.id;
+        const roll = game.dice3d?._currentLocalRoll;
+        const authorizedUsers = getAuthorizedUsers(roll);
         game.socket.emit("module.natural-roll", {
             type: "grab",
-            user: targetUserId
+            user: targetUserId,
+            authorizedUsers: authorizedUsers
         });
 
         let countNewDice = 0;
@@ -712,6 +715,56 @@ export class DiceInteractionManager {
                     });
                 }
 
+                let checkRollMode = roll?.options?.messageMode || roll?.options?.rollMode;
+                if (!checkRollMode && typeof document !== "undefined") {
+                    const activeModeButton = document.querySelector('#message-modes button[aria-pressed="true"]');
+                    if (activeModeButton) {
+                        checkRollMode = activeModeButton.dataset.mode;
+                    } else {
+                        const selectEl = document.querySelector('select[name="rollMode"]');
+                        if (selectEl) {
+                            checkRollMode = selectEl.value;
+                        }
+                    }
+                }
+                if (!checkRollMode) {
+                    checkRollMode = game.settings.get("core", "rollMode");
+                }
+                const isBlind = checkRollMode === "blind" || checkRollMode === "blindroll" || roll?.options?.blind || globalThis._naturalRollMessageVisibility?.blind;
+                if (isBlind && !game.user.isGM) {
+                    log("Blind roll: immediately clearing dice and hiding canvas for non-GM rolling user.");
+                    
+                    DiceInteractionManager.broadcastRoll(throwEngine, throws, simResult, interactionState.naturalRollId);
+
+                    throwEngine.clearDice();
+                    throwEngine.rolling = false;
+                    
+                    if (game.dice3d?.canvas?.hide) {
+                        game.dice3d.canvas.hide();
+                    }
+                    const dsnCanvas = game.dice3d?.canvas?.[0] || game.dice3d?.canvas;
+                    if (dsnCanvas) {
+                        dsnCanvas.style.display = "none";
+                        dsnCanvas.style.cursor = "";
+                    }
+                    if (typeof document !== "undefined") {
+                        if (document.body) {
+                            document.body.style.cursor = "";
+                        }
+                        const styleEl = document.getElementById("natural-roll-cursor-lock");
+                        if (styleEl) {
+                            styleEl.remove();
+                        }
+                    }
+
+                    if (roll && typeof roll._naturalRollResolve === "function") {
+                        roll._naturalRollResolve(roll);
+                    }
+
+                    callback?.(throws);
+                    return;
+                }
+
                 for (const dicemesh of throwEngine.diceList) {
                     if (dicemesh) {
                         const finalVal = faceValues[dicemesh.id];
@@ -1152,6 +1205,8 @@ export class DiceInteractionManager {
                 };
             });
 
+            const roll = game.dice3d?._currentLocalRoll;
+            const authorizedUsers = getAuthorizedUsers(roll);
             const payload = {
                 user: game.user.id,
                 naturalRollId,
@@ -1163,7 +1218,8 @@ export class DiceInteractionManager {
                 deads: deads ? Array.from(deads) : undefined,
                 finalQuaternions: mappedFinalQuaternions,
                 screenWidth: game.dice3d?.canvas?.clientWidth || window.innerWidth,
-                screenHeight: game.dice3d?.canvas?.clientHeight || window.innerHeight
+                screenHeight: game.dice3d?.canvas?.clientHeight || window.innerHeight,
+                authorizedUsers: authorizedUsers
             };
 
             log("Broadcasting manual roll replay payload to other players...");

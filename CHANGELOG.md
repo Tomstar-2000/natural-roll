@@ -2,6 +2,15 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.0] - 2026-08-20
+
+### Added
+
+- **Roll Visibility & Audience Control**: Added visibility boundaries to manual dice grabs and roll replays to fully support Foundry VTT's standard roll/message modes (Public Roll, Private GM Roll, Blind GM Roll, and Self Roll).
+- **V13/V14 Roll/Message Mode Compatibility**: Fully supports V13/V14 `messageMode` options (`self` / `selfroll`, `gm` / `gmroll`, `blind` / `blindroll`).
+- **DOM Selector Fallbacks**: Added fallback checks to query active message mode selection buttons directly from the sidebar (`#message-modes button[aria-pressed="true"]`) to dynamically capture sheet and weapon rolls.
+- **Immediate Blind Roll Hiding**: Implemented instant canvas hiding and dice clearing for non-GM players when throwing blind rolls, while still routing the 3D replay to the GM's screen.
+
 ## [1.4.0] - 2026-08-20
 
 ### Added
