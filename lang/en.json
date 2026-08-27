@@ -17,5 +17,12 @@
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Adjust the spacing/spread scale of the initial dice pool (default is 0.06).",
   "NATURAL_ROLL.Settings.EnableReplay.Name": "Enable Roll Replay",
   "NATURAL_ROLL.Settings.EnableReplay.Hint": "Play back the actual physical dice throw trajectory of other players on your screen.",
+  "NATURAL_ROLL.Settings.EnableMagicalEffects.Name": "Enable Magical Effects",
+  "NATURAL_ROLL.Settings.EnableMagicalEffects.Hint": "Show special visual effects when replayed dice spawn or when blind rolls disappear.",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Name": "Magical Effect Style",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Hint": "Select the visual style of your magical entry/exit effect.",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Smoke": "Magical Smoke",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Lightning": "Lightning Strike",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Portal": "Dimensional Portal",
   "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll requires the 'Dice So Nice!' module to be installed and active."
 }

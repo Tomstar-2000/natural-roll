@@ -17,5 +17,12 @@
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Ajusta la escala de espaciado/dispersión del grupo inicial de dados (por defecto es 0.06).",
   "NATURAL_ROLL.Settings.EnableReplay.Name": "Activar Reproducción de Tiro",
   "NATURAL_ROLL.Settings.EnableReplay.Hint": "Reproduce la trayectoria física exacta del lanzamiento de dados de otros jugadores en tu pantalla.",
+  "NATURAL_ROLL.Settings.EnableMagicalEffects.Name": "Activar Efectos Mágicos",
+  "NATURAL_ROLL.Settings.EnableMagicalEffects.Hint": "Muestra efectos visuales especiales cuando aparecen los dados reproducidos o cuando desaparecen las tiradas ocultas.",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Name": "Estilo de Efecto Mágico",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Hint": "Selecciona el estilo visual de tu efecto mágico de entrada/salida.",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Smoke": "Humo Mágico",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Lightning": "Rayo plasma/Relámpago",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Portal": "Portal Dimensional",
   "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll requiere que el módulo 'Dice So Nice!' esté instalado y activo."
 }

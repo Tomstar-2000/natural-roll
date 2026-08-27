@@ -2,6 +2,19 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.1] - 2026-08-27
+
+### Added
+
+- **Magical Special Effects Style Options**: Introduced the client settings choice `magicalEffectStyle` supporting three visual effect styles: **Magical Smoke**, **Lightning Strike**, and **Dimensional Portal**.
+- **Socket Style Synchronization**: Transmits the rolling user's selected style over sockets so remote roll replays display identically across all clients.
+
+### Fixed
+
+- **Rapid Same-Formula Consecutive Roll Lockout**: Decreased the consecutive same-formula roll duplicate safeguard timeout from `5000ms` to `500ms` and implemented object-level identity checks via `_naturalRollIntercepted` properties to prevent duplicate prompts without blocking rapid consecutive rolls.
+- **Consecutive Roll Bypass in DSN Hooks**: Restricted the `lastCompletedRollTime` duplicate bypass check to only run when `messageID` is present to prevent blocking subsequent roll renders.
+- **Canvas Projection & Bundled THREE Dependencies**: Removed the dependency on `globalThis.THREE` by cloning Three.js `Vector3` properties directly from dice meshes. Projected starting coordinates from trajectory positions inside `prepareReplayIntercept` to ensure replays spawn effects at the exact 3D start pixels instead of the screen center.
+
 ## [1.5.0] - 2026-08-20
 
 ### Added

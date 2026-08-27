@@ -118,6 +118,31 @@ Hooks.once('init', () => {
         default: true
     });
 
+    game.settings.register("natural-roll", "enableMagicalEffects", {
+        name: "NATURAL_ROLL.Settings.EnableMagicalEffects.Name",
+        hint: "NATURAL_ROLL.Settings.EnableMagicalEffects.Hint",
+        scope: "client",
+        config: true,
+        requiresReload: false,
+        type: Boolean,
+        default: true
+    });
+
+    game.settings.register("natural-roll", "magicalEffectStyle", {
+        name: "NATURAL_ROLL.Settings.MagicalEffectStyle.Name",
+        hint: "NATURAL_ROLL.Settings.MagicalEffectStyle.Hint",
+        scope: "client",
+        config: true,
+        requiresReload: false,
+        type: String,
+        choices: {
+            "smoke": "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Smoke",
+            "lightning": "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Lightning",
+            "portal": "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Portal"
+        },
+        default: "smoke"
+    });
+
     DSNPatcher.init();
 });
 

@@ -132,12 +132,18 @@ export class DSNPatcher {
             const isAuto = shouldAutoRoll(roll);
             if (isAuto) return roll;
 
+            if (roll._naturalRollIntercepted) {
+                return roll;
+            }
+
             const timeSinceLastRoll = Date.now() - (DiceInteractionManager.lastCompletedRollTime || 0);
             const cleanFormula = (f) => f ? f.toLowerCase().replace(/[^0-9d+\-*/\s]/g, "").replace(/\s+/g, "") : "";
             const isSameFormula = cleanFormula(DiceInteractionManager.lastCompletedFormula) === cleanFormula(roll.formula);
-            if (game.dice3d?._currentLocalRoll || (timeSinceLastRoll < 5000 && isSameFormula)) {
+            if (game.dice3d?._currentLocalRoll || (timeSinceLastRoll < 500 && isSameFormula)) {
                 return roll;
             }
+
+            roll._naturalRollIntercepted = true;
 
             roll.options = roll.options || {};
             roll.options.isNaturalRollManual = true;
@@ -306,7 +312,7 @@ export class DSNPatcher {
                     dicedata.id = (typeof randomID === "function") ? randomID() : (foundry?.utils?.randomID ? foundry.utils.randomID() : Math.random().toString(36).substring(2, 15));
                 }
                 const result = await originalSpawnDiceMesh.call(this, dicedata, appearance, diceLibrary, workerSpecs);
-                const dicemesh = this.diceList[this.diceList.length - 1];
+                const dicemesh = result || this.diceList[this.diceList.length - 1];
                 if (dicemesh) {
                     const termId = dicedata.options?.naturalRollDieId;
                     if (termId && dicedata.id && String(dicedata.id).startsWith(`${termId}-`)) {
@@ -326,7 +332,7 @@ export class DSNPatcher {
                     dicedata.id = (typeof randomID === "function") ? randomID() : (foundry?.utils?.randomID ? foundry.utils.randomID() : Math.random().toString(36).substring(2, 15));
                 }
                 const result = await originalSpawnDice.call(this, dicedata, appearance, diceLibrary);
-                const dicemesh = this.diceList[this.diceList.length - 1];
+                const dicemesh = result || this.diceList[this.diceList.length - 1];
                 if (dicemesh) {
                     const termId = dicedata.options?.naturalRollDieId;
                     if (termId && dicedata.id && String(dicedata.id).startsWith(`${termId}-`)) {
@@ -413,7 +419,7 @@ export class DSNPatcher {
                 }
 
                 const now = Date.now();
-                if (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 8000) {
+                if (messageID && (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 8000)) {
                     DiceInteractionManager.lastCompletedRollTime = 0;
                     this._currentLocalRoll = null;
                     return Promise.resolve(false);
@@ -437,6 +443,10 @@ export class DSNPatcher {
                     if (matchedReplayIndex !== -1) {
                         DiceInteractionManager.recentReplays.splice(matchedReplayIndex, 1);
                         this._currentLocalRoll = null;
+                        const activePromise = game.dice3d?._activeReplayPromises?.[rollingUserId] || game.dice3d?._activeReplayPromise;
+                        if (activePromise) {
+                            return activePromise.then(() => false);
+                        }
                         return Promise.resolve(false);
                     }
                 }
@@ -547,8 +557,9 @@ export class DSNPatcher {
 
                 if (!isRollingUser && (isManualRoll || isGrabActive) && !isReplay) {
                     log("Bypassing duplicate _showAnimation (already handled by manual roll, grab, socket replay, or replay disabled).");
-                    if (game.dice3d?._activeReplayPromise) {
-                        return game.dice3d._activeReplayPromise.then(() => false);
+                    const activePromise = game.dice3d?._activeReplayPromises?.[rollingUserId] || game.dice3d?._activeReplayPromise;
+                    if (activePromise) {
+                        return activePromise.then(() => false);
                     }
                     return Promise.resolve(false);
                 }

@@ -17,5 +17,12 @@
   "NATURAL_ROLL.Settings.DiceSpread.Hint": "Ajuste l'échelle d'espacement/dispersion du pool initial de dés (par défaut 0.06).",
   "NATURAL_ROLL.Settings.EnableReplay.Name": "Activer la Rediffusion du Lancer",
   "NATURAL_ROLL.Settings.EnableReplay.Hint": "Rejoue la trajectoire physique réelle du lancer de dés des autres joueurs sur votre écran.",
+  "NATURAL_ROLL.Settings.EnableMagicalEffects.Name": "Activer les Effets Magiques",
+  "NATURAL_ROLL.Settings.EnableMagicalEffects.Hint": "Affiche des effets visuels spéciaux lorsque les dés rejoués apparaissent ou lorsque les lancers masqués disparaissent.",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Name": "Style d'Effet Magique",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Hint": "Sélectionne le style visuel de votre effet magique d'entrée/sortie.",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Smoke": "Fumée Magique",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Lightning": "Coup de foudre / Éclair",
+  "NATURAL_ROLL.Settings.MagicalEffectStyle.Choices.Portal": "Portail Dimensionnel",
   "NATURAL_ROLL.Warnings.DsnRequired": "Natural Roll nécessite l'installation et l'activation du module 'Dice So Nice!'."
 }
