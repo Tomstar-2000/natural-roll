@@ -30,7 +30,7 @@ export function getAuthorizedUsers(roll = null) {
     }
 
     let rollMode = roll?.options?.messageMode || roll?.options?.rollMode;
-    
+
     if (!rollMode && typeof document !== "undefined") {
         const activeModeButton = document.querySelector('#message-modes button[aria-pressed="true"]');
         if (activeModeButton) {
@@ -46,7 +46,7 @@ export function getAuthorizedUsers(roll = null) {
     if (!rollMode) {
         rollMode = game.settings.get("core", "rollMode");
     }
-    
+
     if (roll?.options?.whisper && roll.options.whisper.length > 0) {
         const whisper = roll.options.whisper;
         if (roll.options.blind) {
@@ -67,14 +67,14 @@ export function getAuthorizedUsers(roll = null) {
     } else if (rollMode === "blind" || rollMode === "blindroll") {
         return game.users.filter(u => u.isGM).map(u => u.id);
     }
-    
+
     return null;
 }
 
 export function getAuthorizedUsersFromMessage(message) {
     const whisper = message.whisper || [];
     const blind = message.blind || false;
-    
+
     if (whisper.length > 0) {
         if (blind) {
             return game.users.filter(u => u.isGM).map(u => u.id);
@@ -84,7 +84,7 @@ export function getAuthorizedUsersFromMessage(message) {
         set.add(authorId);
         return Array.from(set);
     }
-    
+
     const rollMode = message.rollMode;
     if (rollMode === "self" || rollMode === "selfroll") {
         const authorId = message.author?.id || message.user?.id || game.user.id;

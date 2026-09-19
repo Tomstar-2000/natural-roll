@@ -14,28 +14,71 @@ function shouldAutoRoll(roll) {
     return false;
 }
 
+function extractRollMode(messageText) {
+    if (!messageText) return null;
+    const clean = messageText.replace(/<[^>]*>/g, "").trim();
+    if (clean.startsWith("/selfroll") || clean.startsWith("/self")) {
+        return "selfroll";
+    }
+    if (clean.startsWith("/gmr") || clean.startsWith("/gmroll") || clean.startsWith("/pr")) {
+        return "gmroll";
+    }
+    if (clean.startsWith("/br") || clean.startsWith("/blindroll")) {
+        return "blindroll";
+    }
+    return null;
+}
 
-let nextRollIsManual = false;
+function buildVisibilityPayload(rollMode) {
+    if (!rollMode) return null;
+    return {
+        whisper: rollMode === "selfroll" ? [game.user.id] : (rollMode === "gmroll" || rollMode === "blindroll" ? game.users.filter(u => u.isGM).map(u => u.id) : null),
+        blind: rollMode === "blindroll",
+        rollMode: rollMode
+    };
+}
+
+async function handleEngineBatch(context, throws, persistentThrowData, callback, originalFn) {
+    if (!game.settings.get("natural-roll", "enabled")) {
+        return persistentThrowData !== undefined
+            ? originalFn.call(context, throws, persistentThrowData, callback)
+            : originalFn.call(context, throws, callback);
+    }
+
+    const isReplay = throws.some(t => t.isNaturalRollReplay);
+    const actualEngine = context.throwEngine || context;
+
+    if (isReplay) {
+        log("Playing manual roll replay (batch).");
+        const replayPayload = throws.find(t => t.isNaturalRollReplay)?.replayPayload;
+        if (replayPayload) {
+            DiceInteractionManager.prepareReplayIntercept(actualEngine, replayPayload);
+        }
+        return persistentThrowData !== undefined
+            ? originalFn.call(context, throws, persistentThrowData, callback)
+            : originalFn.call(context, throws, callback);
+    }
+
+    const isManual = throws.some(t => t.isNaturalRollManual || t.dice?.some(d => d.options?.isNaturalRollManual));
+
+    if (!isManual) {
+        log("Bypassing manual roll (not a manual roll or auto-roll matched).");
+        return persistentThrowData !== undefined
+            ? originalFn.call(context, throws, persistentThrowData, callback)
+            : originalFn.call(context, throws, callback);
+    }
+
+    const rollingUserId = throws.find(t => t.naturalRollUser)?.naturalRollUser || throws[0]?.dice?.[0]?.options?.naturalRollUser || game.user.id;
+    log("Triggering manual hold-and-roll screen.");
+    await DiceInteractionManager.handleHoldAndRoll(actualEngine, throws, callback, rollingUserId);
+}
 
 export class DSNPatcher {
     static init() {
         Hooks.on("chatMessage", (chatLog, messageText, chatData) => {
-            const clean = messageText.replace(/<[^>]*>/g, "").trim();
-            let rollMode = null;
-            if (clean.startsWith("/selfroll") || clean.startsWith("/self")) {
-                rollMode = "selfroll";
-            } else if (clean.startsWith("/gmr") || clean.startsWith("/gmroll") || clean.startsWith("/pr")) {
-                rollMode = "gmroll";
-            } else if (clean.startsWith("/br") || clean.startsWith("/blindroll")) {
-                rollMode = "blindroll";
-            }
-            
+            const rollMode = extractRollMode(messageText);
             if (rollMode) {
-                globalThis._naturalRollMessageVisibility = {
-                    whisper: rollMode === "selfroll" ? [game.user.id] : (rollMode === "gmroll" || rollMode === "blindroll" ? game.users.filter(u => u.isGM).map(u => u.id) : null),
-                    blind: rollMode === "blindroll",
-                    rollMode: rollMode
-                };
+                globalThis._naturalRollMessageVisibility = buildVisibilityPayload(rollMode);
                 setTimeout(() => {
                     if (globalThis._naturalRollMessageVisibility?.rollMode === rollMode) {
                         globalThis._naturalRollMessageVisibility = null;
@@ -47,22 +90,9 @@ export class DSNPatcher {
         const originalProcessMessage = ChatLog.prototype.processMessage;
         if (originalProcessMessage) {
             ChatLog.prototype.processMessage = async function(message, ...args) {
-                const clean = message.replace(/<[^>]*>/g, "").trim();
-                let rollMode = null;
-                if (clean.startsWith("/selfroll") || clean.startsWith("/self")) {
-                    rollMode = "selfroll";
-                } else if (clean.startsWith("/gmr") || clean.startsWith("/gmroll") || clean.startsWith("/pr")) {
-                    rollMode = "gmroll";
-                } else if (clean.startsWith("/br") || clean.startsWith("/blindroll")) {
-                    rollMode = "blindroll";
-                }
-                
+                const rollMode = extractRollMode(message);
                 if (rollMode) {
-                    globalThis._naturalRollMessageVisibility = {
-                        whisper: rollMode === "selfroll" ? [game.user.id] : (rollMode === "gmroll" || rollMode === "blindroll" ? game.users.filter(u => u.isGM).map(u => u.id) : null),
-                        blind: rollMode === "blindroll",
-                        rollMode: rollMode
-                    };
+                    globalThis._naturalRollMessageVisibility = buildVisibilityPayload(rollMode);
                 }
                 try {
                     return await originalProcessMessage.call(this, message, ...args);
@@ -136,11 +166,10 @@ export class DSNPatcher {
                 return roll;
             }
 
-            const timeSinceLastRoll = Date.now() - (DiceInteractionManager.lastCompletedRollTime || 0);
-            const cleanFormula = (f) => f ? f.toLowerCase().replace(/[^0-9d+\-*/\s]/g, "").replace(/\s+/g, "") : "";
-            const isSameFormula = cleanFormula(DiceInteractionManager.lastCompletedFormula) === cleanFormula(roll.formula);
-            if (game.dice3d?._currentLocalRoll || (timeSinceLastRoll < 500 && isSameFormula)) {
-                return roll;
+            if (game.dice3d?._currentLocalRoll && game.dice3d._currentLocalRoll !== roll) {
+                if (!game.dice3d._currentLocalRoll._evaluated) {
+                    return roll;
+                }
             }
 
             roll._naturalRollIntercepted = true;
@@ -155,20 +184,32 @@ export class DSNPatcher {
             if (game.dice3d) {
                 game.dice3d._currentLocalRoll = roll;
 
+                let timeoutId;
+                const timeoutPromise = new Promise((resolve) => {
+                    timeoutId = setTimeout(() => resolve(roll), 60000);
+                });
                 const manualRollPromise = new Promise((resolve) => {
                     roll._naturalRollResolve = () => {
+                        if (timeoutId) clearTimeout(timeoutId);
                         resolve(roll);
                     };
                 });
                 try {
-                    await game.dice3d.showForRoll(roll, game.user, true);
-                    await manualRollPromise;
+                    const dsnPromise = game.dice3d.showForRoll(roll, game.user, true);
+                    if (dsnPromise && typeof dsnPromise.catch === "function") {
+                        dsnPromise.catch(err => error("DSN showForRoll error:", err));
+                    }
+                    await Promise.race([manualRollPromise, timeoutPromise]);
                 } catch (err) {
                     error("Error playing manual roll in Roll.evaluate:", err);
                 } finally {
+                    if (timeoutId) clearTimeout(timeoutId);
                     DiceInteractionManager.lastCompletedFormula = roll.formula;
                     DiceInteractionManager.lastCompletedRollTime = Date.now();
-                    game.dice3d._currentLocalRoll = null;
+                    if (game.dice3d) {
+                        game.dice3d._currentLocalRoll = null;
+                        game.dice3d._isLocalRollInitiation = false;
+                    }
                     delete roll._naturalRollResolve;
                 }
             }
@@ -195,7 +236,12 @@ export class DSNPatcher {
                 rollJSON.options.isNaturalRollManual = true;
                 return rollJSON;
             });
-            message.updateSource({ rolls: serializedRolls });
+
+            const updates = {
+                rolls: serializedRolls,
+                "flags.dice-so-nice.interactive": false
+            };
+            message.updateSource(updates);
 
             if (game.dice3d) {
                 game.dice3d._isLocalRollInitiation = true;
@@ -217,157 +263,238 @@ export class DSNPatcher {
 
     static patchDSNSync() {
         if (!game.dice3d?.box) return;
-        const throwEngine = game.dice3d.box.throwEngine || game.dice3d.box;
-        const engineProto = throwEngine.constructor.prototype;
-        if (engineProto._patchedForNaturalRoll) return;
+        if (game.dice3d.box.animateThrow && !game.dice3d.box._originalAnimateThrow) {
+            const originalBoxAnimateThrow = game.dice3d.box.animateThrow;
+            game.dice3d.box._originalAnimateThrow = originalBoxAnimateThrow;
+            const wrappedBoxAnimateThrow = function(delta) {
+                const actualEngine = this.throwEngine || this;
 
-        engineProto._patchedForNaturalRoll = true;
-        log("Patching throwEngine prototype methods (sync).");
-
-        if (engineProto.startUnifiedBatch) {
-            const originalStartUnifiedBatch = engineProto.startUnifiedBatch;
-            engineProto.startUnifiedBatch = async function(throws, persistentThrowData, callback) {
-                if (!game.settings.get("natural-roll", "enabled")) {
-                    return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
-                }
-
-                const isReplay = throws.some(t => t.isNaturalRollReplay);
-                if (isReplay) {
-                    log("Playing manual roll replay (unified batch).");
-                    this._simulationReady = false;
-                    const replayPayload = throws.find(t => t.isNaturalRollReplay)?.replayPayload;
-                    if (replayPayload) {
-                        DiceInteractionManager.prepareReplayIntercept(this, replayPayload);
-                    }
-                    return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
-                }
-
-                const isManual = throws.some(t => t.isNaturalRollManual);
-
-                if (!isManual) {
-                    log("Bypassing manual roll (auto-roll matched).");
-                    return originalStartUnifiedBatch.call(this, throws, persistentThrowData, callback);
-                }
-
-                const rollingUserId = throws.find(t => t.naturalRollUser)?.naturalRollUser || game.user.id;
-                log("Triggering manual hold-and-roll screen.");
-                await DiceInteractionManager.handleHoldAndRoll(this, throws, callback, rollingUserId);
-            };
-        } else if (engineProto.start_throw) {
-            const originalStartThrow = engineProto.start_throw;
-            engineProto.start_throw = async function(throws, callback) {
-                if (!game.settings.get("natural-roll", "enabled")) {
-                    return originalStartThrow.call(this, throws, callback);
-                }
-
-                const isReplay = throws.some(t => t.isNaturalRollReplay);
-                if (isReplay) {
-                    log("Playing manual roll replay (start_throw).");
-                    this._simulationReady = false;
-                    const replayPayload = throws.find(t => t.isNaturalRollReplay)?.replayPayload;
-                    if (replayPayload) {
-                        DiceInteractionManager.prepareReplayIntercept(this, replayPayload);
-                    }
-                    return originalStartThrow.call(this, throws, callback);
-                }
-
-                const isManual = throws.some(t => t.isNaturalRollManual);
-
-                if (!isManual) {
-                    log("Bypassing manual roll (auto-roll matched).");
-                    return originalStartThrow.call(this, throws, callback);
-                }
-
-                const rollingUserId = throws.find(t => t.naturalRollUser)?.naturalRollUser || game.user.id;
-                log("Triggering manual hold-and-roll screen.");
-                await DiceInteractionManager.handleHoldAndRoll(this, throws, callback, rollingUserId);
-            };
-        }
-        
-        if (engineProto.updateThrowPlayback) {
-            const originalUpdateThrowPlayback = engineProto.updateThrowPlayback;
-            engineProto.updateThrowPlayback = function(neededSteps) {
-                if (this._simulationReady === false) {
+                if (actualEngine._simulationReady === false) {
+                    try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
                     return;
                 }
-                return originalUpdateThrowPlayback.call(this, neededSteps);
-            };
-        } else if (engineProto.animateThrow) {
-            const originalAnimateThrow = engineProto.animateThrow;
-            engineProto.animateThrow = function() {
-                if (this._simulationReady === false) {
-                    if (this.isVisible) {
-                        this.renderScene();
-                    }
+
+                if (!this.rolling && !actualEngine.rolling) {
+                    try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
                     return;
                 }
-                return originalAnimateThrow.apply(this, arguments);
-            };
-        }
-
-        if (engineProto.spawnDiceMesh) {
-            const originalSpawnDiceMesh = engineProto.spawnDiceMesh;
-            engineProto.spawnDiceMesh = async function(dicedata, appearance, diceLibrary, workerSpecs) {
-                if (dicedata && (dicedata.id === undefined || dicedata.id === null)) {
-                    dicedata.id = (typeof randomID === "function") ? randomID() : (foundry?.utils?.randomID ? foundry.utils.randomID() : Math.random().toString(36).substring(2, 15));
+                const diceList = actualEngine.diceList || this.diceList || [];
+                if (diceList.length === 0) {
+                    return;
                 }
-                const result = await originalSpawnDiceMesh.call(this, dicedata, appearance, diceLibrary, workerSpecs);
-                const dicemesh = result || this.diceList[this.diceList.length - 1];
-                if (dicemesh) {
-                    const termId = dicedata.options?.naturalRollDieId;
-                    if (termId && dicedata.id && String(dicedata.id).startsWith(`${termId}-`)) {
-                        dicemesh.userData.rollerId = dicedata.id;
-                    } else {
-                        dicemesh.userData.rollerId = termId ? `${termId}-${dicedata.id}` : dicedata.id;
+                for (const die of diceList) {
+                    if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+                        return;
                     }
                 }
-                return result;
-            };
-        }
-
-        if (engineProto.spawnDice) {
-            const originalSpawnDice = engineProto.spawnDice;
-            engineProto.spawnDice = async function(dicedata, appearance, diceLibrary) {
-                if (dicedata && (dicedata.id === undefined || dicedata.id === null)) {
-                    dicedata.id = (typeof randomID === "function") ? randomID() : (foundry?.utils?.randomID ? foundry.utils.randomID() : Math.random().toString(36).substring(2, 15));
+                try {
+                    const res = originalBoxAnimateThrow.call(this, delta);
+                    if (res && typeof res.catch === "function") {
+                        res.catch(() => {});
+                    }
+                    return res;
+                } catch (e) {
+                    return;
                 }
-                const result = await originalSpawnDice.call(this, dicedata, appearance, diceLibrary);
-                const dicemesh = result || this.diceList[this.diceList.length - 1];
-                if (dicemesh) {
-                    const termId = dicedata.options?.naturalRollDieId;
-                    if (termId && dicedata.id && String(dicedata.id).startsWith(`${termId}-`)) {
-                        dicemesh.userData.rollerId = dicedata.id;
-                    } else {
-                        dicemesh.userData.rollerId = termId ? `${termId}-${dicedata.id}` : dicedata.id;
+            };
+            game.dice3d.box.animateThrow = wrappedBoxAnimateThrow;
+
+            try {
+                const ticker = canvas.app?.ticker;
+                if (ticker?._head) {
+                    let node = ticker._head.next;
+                    while (node) {
+                        if (node.fn === originalBoxAnimateThrow && node.context === game.dice3d.box) {
+                            node.fn = wrappedBoxAnimateThrow;
+                            log("Natural Roll | Swapped pre-registered animateThrow ticker node to patched wrapper.");
+                        }
+                        node = node.next;
                     }
                 }
-                return result;
-            };
+            } catch(e) {}
         }
 
-        if (engineProto.swapDiceFace) {
-            const originalSwapDiceFace = engineProto.swapDiceFace;
-            engineProto.swapDiceFace = function(dicemesh, faceValue) {
-                if (game.dice3d?._naturalRollReplayActive) {
-                    log("Bypassing swapDiceFace during replay");
-                    return Promise.resolve();
+        if (game.dice3d.box._originalAnimateThrow && game.dice3d.box.animateThrow !== game.dice3d.box._originalAnimateThrow) {
+            try {
+                const ticker = canvas.app?.ticker;
+                const box = game.dice3d.box;
+                const originalFn = box._originalAnimateThrow;
+                const wrappedFn = box.animateThrow;
+                if (ticker?._head) {
+                    let node = ticker._head.next;
+                    while (node) {
+                        if (node.fn === originalFn && node.context === box) {
+                            node.fn = wrappedFn;
+                            log("Natural Roll | Re-scan: swapped stale animateThrow ticker node to patched wrapper.");
+                        }
+                        node = node.next;
+                    }
                 }
-                return originalSwapDiceFace.call(this, dicemesh, faceValue);
-            };
+            } catch(e) {}
         }
 
-        const originalClearDice = engineProto.clearDice;
-        engineProto.clearDice = function() {
-            DiceInteractionManager.cleanup(this);
-            return originalClearDice.apply(this, arguments);
-        };
-        
-        log("Patched Dice So Nice! ThrowEngine prototype successfully.");
+        const targets = [];
+        if (game.dice3d.box.throwEngine) {
+            targets.push(game.dice3d.box.throwEngine.constructor.prototype);
+        }
+        targets.push(game.dice3d.box.constructor.prototype);
+
+        for (const engineProto of targets) {
+            if (engineProto._patchedForNaturalRoll) continue;
+            engineProto._patchedForNaturalRoll = true;
+            log("Patching throwEngine prototype methods (sync).");
+
+            if (engineProto.startUnifiedBatch) {
+                const originalStartUnifiedBatch = engineProto.startUnifiedBatch;
+                engineProto.startUnifiedBatch = function(throws, persistentThrowData, callback) {
+                    return handleEngineBatch(this, throws, persistentThrowData, callback, originalStartUnifiedBatch);
+                };
+            } else if (engineProto.start_throw) {
+                const originalStartThrow = engineProto.start_throw;
+                engineProto.start_throw = function(throws, callback) {
+                    return handleEngineBatch(this, throws, undefined, callback, originalStartThrow);
+                };
+            }
+
+            if (engineProto.updateThrowPlayback) {
+                const originalUpdateThrowPlayback = engineProto.updateThrowPlayback;
+                engineProto.updateThrowPlayback = function(neededSteps) {
+                    const actualEngine = this.throwEngine || this;
+                    if (actualEngine._simulationReady === false) {
+                        return;
+                    }
+                    return originalUpdateThrowPlayback.call(this, neededSteps);
+                };
+            }
+
+            if (engineProto.animateThrow && !engineProto._originalAnimateThrow) {
+                const originalAnimateThrow = engineProto.animateThrow;
+                engineProto._originalAnimateThrow = originalAnimateThrow;
+                engineProto.animateThrow = function(delta) {
+                    const actualEngine = this.throwEngine || this;
+
+                    if (actualEngine._simulationReady === false) {
+                        try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
+                        return;
+                    }
+
+                    if (!this.rolling && !actualEngine.rolling) {
+                        try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
+                        return;
+                    }
+                    const diceList = actualEngine.diceList || this.diceList || [];
+                    if (diceList.length === 0) {
+                        return;
+                    }
+                    for (const die of diceList) {
+                        if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+                            return;
+                        }
+                    }
+                    try {
+                        const res = originalAnimateThrow.call(this, delta);
+                        if (res && typeof res.catch === "function") {
+                            res.catch(() => {});
+                        }
+                        return res;
+                    } catch (e) {
+                        return;
+                    }
+                };
+
+                try {
+                    const ticker = canvas.app?.ticker;
+                    const box = game.dice3d?.box;
+                    if (ticker?._head && box) {
+                        let node = ticker._head.next;
+                        while (node) {
+                            if (node.fn === originalAnimateThrow && node.context === box) {
+
+                                node.fn = engineProto.animateThrow;
+                                log("Natural Roll | Swapped pre-registered animateThrow prototype ticker node to patched wrapper.");
+                            }
+                            node = node.next;
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            if (engineProto.spawnDiceMesh) {
+                const originalSpawnDiceMesh = engineProto.spawnDiceMesh;
+                engineProto.spawnDiceMesh = async function(dicedata, appearance, diceLibrary, workerSpecs) {
+                    if (dicedata && (dicedata.id === undefined || dicedata.id === null)) {
+                        dicedata.id = foundry?.utils?.randomID ? foundry.utils.randomID() : ((typeof globalThis.randomID === "function") ? globalThis.randomID() : Math.random().toString(36).substring(2, 15));
+                    }
+                    const result = await originalSpawnDiceMesh.call(this, dicedata, appearance, diceLibrary, workerSpecs);
+                    const actualEngine = this.throwEngine || this;
+                    const dicemesh = result || actualEngine.diceList?.[actualEngine.diceList.length - 1];
+                    if (dicemesh) {
+                        const termId = dicedata.options?.naturalRollDieId;
+                        if (termId && dicedata.id && String(dicedata.id).startsWith(`${termId}-`)) {
+                            dicemesh.userData.rollerId = dicedata.id;
+                        } else {
+                            dicemesh.userData.rollerId = termId ? `${termId}-${dicedata.id}` : dicedata.id;
+                        }
+                    }
+                    return result;
+                };
+            }
+
+            if (engineProto.spawnDice) {
+                const originalSpawnDice = engineProto.spawnDice;
+                engineProto.spawnDice = async function(dicedata, appearance, diceLibrary) {
+                    if (dicedata && (dicedata.id === undefined || dicedata.id === null)) {
+                        dicedata.id = foundry?.utils?.randomID ? foundry.utils.randomID() : ((typeof globalThis.randomID === "function") ? globalThis.randomID() : Math.random().toString(36).substring(2, 15));
+                    }
+                    const result = await originalSpawnDice.call(this, dicedata, appearance, diceLibrary);
+                    const actualEngine = this.throwEngine || this;
+                    const dicemesh = result || actualEngine.diceList?.[actualEngine.diceList.length - 1];
+                    if (dicemesh) {
+                        const termId = dicedata.options?.naturalRollDieId;
+                        if (termId && dicedata.id && String(dicedata.id).startsWith(`${termId}-`)) {
+                            dicemesh.userData.rollerId = dicedata.id;
+                        } else {
+                            dicemesh.userData.rollerId = termId ? `${termId}-${dicedata.id}` : dicedata.id;
+                        }
+                    }
+                    return result;
+                };
+            }
+
+            if (engineProto.swapDiceFace) {
+                const originalSwapDiceFace = engineProto.swapDiceFace;
+                engineProto.swapDiceFace = function(dicemesh, faceValue) {
+                    if (game.dice3d?._naturalRollReplayActive) {
+                        log("Bypassing swapDiceFace during replay");
+                        return Promise.resolve();
+                    }
+                    return originalSwapDiceFace.call(this, dicemesh, faceValue);
+                };
+            }
+
+            const originalClearDice = engineProto.clearDice;
+            engineProto.clearDice = function() {
+                const actualEngine = this.throwEngine || this;
+                DiceInteractionManager.cleanup(actualEngine);
+                return originalClearDice ? originalClearDice.apply(this, arguments) : undefined;
+            };
+
+            const originalClearAll = engineProto.clearAll;
+            if (originalClearAll) {
+                engineProto.clearAll = function() {
+                    const actualEngine = this.throwEngine || this;
+                    DiceInteractionManager.cleanup(actualEngine);
+                    return originalClearAll.apply(this, arguments);
+                };
+            }
+
+            log("Patched Dice So Nice! ThrowEngine prototype successfully.");
+        }
     }
 
     static async patchDSN() {
         log("patchDSN() starting.");
-        
+
         if (game.dice3d?._boxReady) {
             log("Waiting for game.dice3d._boxReady promise to resolve...");
             await game.dice3d._boxReady;
@@ -375,199 +502,280 @@ export class DSNPatcher {
 
         DSNPatcher.patchDSNSync();
 
-        if (!game.dice3d._patchedForNaturalRoll) {
-            game.dice3d._patchedForNaturalRoll = true;
-            log("Patching game.dice3d methods.");
+        const patchTarget = (target) => {
+            if (!target || target._patchedForNaturalRoll) return;
+            target._patchedForNaturalRoll = true;
 
-            const originalShowForRoll = game.dice3d.showForRoll;
-            game.dice3d.showForRoll = function(roll, user = game.user, synchronize, users, blind, messageID, speaker, options) {
-                DSNPatcher.patchDSNSync();
-                if (!game.settings.get("natural-roll", "enabled")) {
-                    return originalShowForRoll.call(this, roll, user, synchronize, users, blind, messageID, speaker, options);
-                }
-
-                const rollDice = roll.dice || [];
-                if (!game.settings.get("natural-roll", "enableReplay")) {
-                    rollDice.forEach(die => {
-                        if (die.results) {
-                            die.results.forEach(r => {
-                                if (r.vectors) delete r.vectors;
-                            });
-                        }
-                    });
-                }
-                const rollResults = rollDice.flatMap(d => (d.results || []).map(r => r.result)).sort();
-                const hasResults = rollResults.length > 0;
-                let rollingUserId = user?.id || user || game.user.id;
-                if (messageID) {
-                    const msg = game.messages.get(messageID);
-                    if (msg) {
-                        rollingUserId = msg.author?.id || msg.user?.id || rollingUserId;
+            const originalShowForRoll = target.showForRoll;
+            if (originalShowForRoll) {
+                target.showForRoll = function(roll, user = game.user, synchronize, users, blind, messageID, speaker, options) {
+                    DSNPatcher.patchDSNSync();
+                    if (!game.settings.get("natural-roll", "enabled")) {
+                        return originalShowForRoll.call(this, roll, user, synchronize, users, blind, messageID, speaker, options);
                     }
-                }
-                const isRollingUser = (!messageID && synchronize !== false) || (rollingUserId === game.user.id && !!this._isLocalRollInitiation);
 
-                if (!messageID && synchronize !== false) {
-                    this._isLocalRollInitiation = true;
-                    this._currentLocalRoll = roll;
-                    
-                    game.socket.emit("module.natural-roll", {
-                        type: "grab",
-                        user: rollingUserId,
-                        authorizedUsers: users || getAuthorizedUsers(roll)
-                    });
-                }
+                    const rollDice = roll.dice || [];
+                    if (!game.settings.get("natural-roll", "enableReplay")) {
+                        rollDice.forEach(die => {
+                            if (die.results) {
+                                die.results.forEach(r => {
+                                    if (r.vectors) delete r.vectors;
+                                });
+                            }
+                        });
+                    }
+                    const rollResults = rollDice.flatMap(d => (d.results || []).map(r => r.result)).sort();
+                    let rollingUserId = user?.id || user || game.user.id;
+                    if (messageID) {
+                        const msg = game.messages.get(messageID);
+                        if (msg) {
+                            rollingUserId = msg.author?.id || msg.user?.id || rollingUserId;
+                        }
+                    }
+                    const isRollingUser = (!messageID && synchronize !== false) || (rollingUserId === game.user.id && !!game.dice3d._isLocalRollInitiation);
 
-                const now = Date.now();
-                if (messageID && (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 8000)) {
-                    DiceInteractionManager.lastCompletedRollTime = 0;
-                    this._currentLocalRoll = null;
-                    return Promise.resolve(false);
-                }
+                    if (!messageID && synchronize !== false) {
+                        game.dice3d._isLocalRollInitiation = true;
+                        game.dice3d._currentLocalRoll = roll;
 
-                if (!isRollingUser) {
-                    const isManual = roll.options?.isNaturalRollManual || rollDice.some(d => d.options?.isNaturalRollManual);
-                    if (isManual && !game.settings.get("natural-roll", "enableReplay")) {
-                        log("Bypassing manual roll on remote client: Replay is disabled.");
-                        this._currentLocalRoll = null;
+                        game.socket.emit("module.natural-roll", {
+                            type: "grab",
+                            user: rollingUserId,
+                            authorizedUsers: users || getAuthorizedUsers(roll)
+                        });
+                    }
+
+                    const now = Date.now();
+                    if (messageID && (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 5000)) {
+                        if (game.dice3d?._currentLocalRoll === roll) {
+                            game.dice3d._currentLocalRoll = null;
+                        }
+                        try {
+                            Hooks.callAll("diceSoNiceRollComplete", messageID);
+                        } catch (e) {}
                         return Promise.resolve(false);
                     }
 
-                    DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
-                    const matchedReplayIndex = DiceInteractionManager.recentReplays.findIndex(replay => {
-                        return replay.user === rollingUserId &&
-                               JSON.stringify(replay.results) === JSON.stringify(rollResults) &&
-                               (now - replay.timestamp) < 8000;
-                    });
-                    
-                    if (matchedReplayIndex !== -1) {
-                        DiceInteractionManager.recentReplays.splice(matchedReplayIndex, 1);
-                        this._currentLocalRoll = null;
+                    if (!isRollingUser) {
+                        const isManual = roll.options?.isNaturalRollManual || rollDice.some(d => d.options?.isNaturalRollManual);
+                        if (isManual && !game.settings.get("natural-roll", "enableReplay")) {
+                            log("Bypassing manual roll on remote client: Replay is disabled.");
+                            game.dice3d._currentLocalRoll = null;
+                            if (messageID) {
+                                try { Hooks.callAll("diceSoNiceRollComplete", messageID); } catch (e) {}
+                            }
+                            return Promise.resolve(false);
+                        }
+
+                        DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+                        const matchedReplayIndex = DiceInteractionManager.recentReplays.findIndex(replay => {
+                            return replay.user === rollingUserId &&
+                                   JSON.stringify(replay.results) === JSON.stringify(rollResults) &&
+                                   (now - replay.timestamp) < 8000;
+                        });
+
+                        if (matchedReplayIndex !== -1) {
+                            DiceInteractionManager.recentReplays.splice(matchedReplayIndex, 1);
+                            game.dice3d._currentLocalRoll = null;
+                            if (messageID) {
+                                try { Hooks.callAll("diceSoNiceRollComplete", messageID); } catch (e) {}
+                            }
+                            const activePromise = game.dice3d?._activeReplayPromises?.[rollingUserId] || game.dice3d?._activeReplayPromise;
+                            if (activePromise) {
+                                return activePromise.then(() => false);
+                            }
+                            return Promise.resolve(false);
+                        }
+                    }
+
+                    if (isRollingUser) {
+                        const isAuto = shouldAutoRoll(roll);
+                        rollDice.forEach(die => {
+                            die.options = die.options || {};
+                            die.options.naturalRollDieId = die.options.naturalRollDieId || (foundry?.utils?.randomID ? foundry.utils.randomID() : ((typeof globalThis.randomID === "function") ? globalThis.randomID() : Math.random().toString(36).substring(2, 15)));
+                            if (!isAuto) {
+                                die.options.isNaturalRollManual = true;
+                            }
+                        });
+                    }
+
+                    const cleanup = () => {
+                        const autoRoll = shouldAutoRoll(roll);
+                        if (!autoRoll) return;
+                        if (game.dice3d?._currentLocalRoll === roll) {
+                            game.dice3d._currentLocalRoll = null;
+                        }
+                        if (game.dice3d) {
+                            game.dice3d._isLocalRollInitiation = false;
+                        }
+                    };
+
+                    let promise;
+                    if (!isRollingUser) {
+                        promise = originalShowForRoll.call(this, roll, user, synchronize, users, blind, messageID, speaker, options);
+                    } else {
+                        const autoRoll = shouldAutoRoll(roll);
+                        game.dice3d._lastShowForRollWasAutoRoll = autoRoll;
+                        const syncOption = autoRoll ? synchronize : false;
+                        promise = originalShowForRoll.call(this, roll, user, syncOption, users, blind, messageID, speaker, options);
+                    }
+
+                    if (promise && typeof promise.then === "function") {
+                        promise.finally(cleanup);
+                    } else {
+                        cleanup();
+                    }
+                    return promise;
+                };
+            }
+
+            const originalShow = target.show;
+            if (originalShow) {
+                target.show = function(data, user = game.user, synchronize = false, users = null, blind, speaker = null) {
+                    DSNPatcher.patchDSNSync();
+                    if (!game.settings.get("natural-roll", "enabled")) {
+                        return originalShow.call(this, data, user, synchronize, users, blind, speaker);
+                    }
+
+                    const rollingUserId = user?.id || user || game.user.id;
+                    data.naturalRollUser = rollingUserId;
+
+                    const isReplay = data.isNaturalRollReplay || data.throws?.some(t => t.isNaturalRollReplay);
+                    if (!isReplay && game.dice3d) {
+                        game.dice3d._naturalRollReplayPrepared = false;
+                        game.dice3d._naturalRollReplayActive = false;
+                        const worker = game.dice3d.box?.physicsWorker;
+                        if (worker && worker._originalExec) {
+                            worker.exec = worker._originalExec;
+                            delete worker._originalExec;
+                            log("Replay Interceptor: force restored original worker.exec for new normal roll");
+                        }
+                    }
+
+                    const isRollingUser = !!synchronize || !!game.dice3d._isLocalRollInitiation;
+
+                    const isAutoRoll = !!game.dice3d._lastShowForRollWasAutoRoll;
+                    game.dice3d._lastShowForRollWasAutoRoll = false;
+
+                    const isManual = (isRollingUser && !isReplay && !isAutoRoll) || data.throws?.some(t => t.dice?.some(d => d.options?.isNaturalRollManual));
+
+                    if (isManual) {
+                        if (data.throws) {
+                            for (const t of data.throws) {
+                                t.isNaturalRollManual = true;
+                                t.naturalRollUser = rollingUserId;
+                            }
+                        }
+                    }
+
+                    if (!isRollingUser) {
+                        const isManualRoll = data.throws?.some(t => t.isNaturalRollManual || t.dice?.some(d => d.options?.isNaturalRollManual));
+                        const isGrabActive = DiceInteractionManager.activeGrabs?.has(rollingUserId);
+
+                        if ((isManualRoll || isGrabActive) && !isReplay) {
+                            log(`Bypassing manual/grab roll rendering for remote user ${rollingUserId}.`);
+                            return Promise.resolve(false);
+                        }
+                    }
+
+                    return originalShow.call(this, data, user, synchronize, users, blind, speaker);
+                };
+            }
+
+            const originalShowAnimation = target._showAnimation;
+            if (originalShowAnimation) {
+                target._showAnimation = function(data, config) {
+                    DSNPatcher.patchDSNSync();
+                    if (!game.settings.get("natural-roll", "enabled")) {
+                        return originalShowAnimation.call(this, data, config);
+                    }
+
+                    const rollingUserId = data.naturalRollUser || data.user?.id || data.user || data.throws?.[0]?.user || game.user.id;
+                    const isRollingUser = (rollingUserId === game.user.id);
+                    const isManualRoll = data.throws?.some(t => t.dice?.some(d => d.options?.naturalRollDieId));
+                    const isReplay = data.isNaturalRollReplay || data.throws?.some(t => t.isNaturalRollReplay);
+
+                    const isGrabActive = DiceInteractionManager.activeGrabs?.has(rollingUserId);
+
+                    if (!isRollingUser && (isManualRoll || isGrabActive) && !isReplay) {
+                        log("Bypassing duplicate _showAnimation (already handled by manual roll, grab, socket replay, or replay disabled).");
                         const activePromise = game.dice3d?._activeReplayPromises?.[rollingUserId] || game.dice3d?._activeReplayPromise;
                         if (activePromise) {
                             return activePromise.then(() => false);
                         }
                         return Promise.resolve(false);
                     }
-                }
 
-                if (isRollingUser) {
-                    const isAuto = shouldAutoRoll(roll);
-                    rollDice.forEach(die => {
-                        die.options = die.options || {};
-                        die.options.naturalRollDieId = die.options.naturalRollDieId || ((typeof randomID === "function") ? randomID() : (foundry?.utils?.randomID ? foundry.utils.randomID() : Math.random().toString(36).substring(2, 15)));
-                        if (!isAuto) {
-                            die.options.isNaturalRollManual = true;
-                        }
-                    });
-                }
-
-                const cleanup = () => {
-                    const isAuto = shouldAutoRoll(roll);
-                    if (!isRollingUser || isAuto) {
-                        if (this._currentLocalRoll === roll) {
-                            this._currentLocalRoll = null;
-                        }
-                    }
-                    this._isLocalRollInitiation = false;
-                };
-
-                let promise;
-                if (!isRollingUser) {
-                    promise = originalShowForRoll.call(this, roll, user, synchronize, users, blind, messageID, speaker, options);
-                } else {
-                    const autoRoll = shouldAutoRoll(roll);
-                    this._lastShowForRollWasAutoRoll = autoRoll;
-                    const syncOption = autoRoll ? synchronize : false;
-                    promise = originalShowForRoll.call(this, roll, user, syncOption, users, blind, messageID, speaker, options);
-                }
-
-                if (promise && typeof promise.then === "function") {
-                    promise.finally(cleanup);
-                } else {
-                    cleanup();
-                }
-                return promise;
-            };
-
-            const originalShow = game.dice3d.show;
-            game.dice3d.show = function(data, user = game.user, synchronize = false, users = null, blind, speaker = null) {
-                DSNPatcher.patchDSNSync();
-                if (!game.settings.get("natural-roll", "enabled")) {
-                    return originalShow.call(this, data, user, synchronize, users, blind, speaker);
-                }
-
-                const rollingUserId = user?.id || user || game.user.id;
-                data.naturalRollUser = rollingUserId;
-
-                const isReplay = data.isNaturalRollReplay || data.throws?.some(t => t.isNaturalRollReplay);
-                if (!isReplay && game.dice3d) {
-                    game.dice3d._naturalRollReplayPrepared = false;
-                    game.dice3d._naturalRollReplayActive = false;
-                    const worker = this.box?.physicsWorker;
-                    if (worker && worker._originalExec) {
-                        worker.exec = worker._originalExec;
-                        delete worker._originalExec;
-                        log("Replay Interceptor: force restored original worker.exec for new normal roll");
-                    }
-                }
-
-                const isRollingUser = !!synchronize || !!this._isLocalRollInitiation;
-
-                const isAutoRoll = !!this._lastShowForRollWasAutoRoll;
-                this._lastShowForRollWasAutoRoll = false;
-
-                const isManual = isRollingUser && !isReplay && !isAutoRoll;
-
-                if (isManual) {
-                    if (data.throws) {
-                        for (const t of data.throws) {
-                            t.isNaturalRollManual = true;
-                            t.naturalRollUser = rollingUserId;
-                        }
-                    }
-                }
-
-                if (!isRollingUser) {
-                    const isManualRoll = data.throws?.some(t => t.isNaturalRollManual || t.dice?.some(d => d.options?.isNaturalRollManual));
-                    const isGrabActive = DiceInteractionManager.activeGrabs?.has(rollingUserId);
-
-                    if ((isManualRoll || isGrabActive) && !isReplay) {
-                        log(`Bypassing manual/grab roll rendering for remote user ${rollingUserId}.`);
-                        return Promise.resolve(false);
-                    }
-                }
-
-                return originalShow.call(this, data, user, synchronize, users, blind, speaker);
-            };
-
-            const originalShowAnimation = game.dice3d._showAnimation;
-            game.dice3d._showAnimation = function(data, config) {
-                DSNPatcher.patchDSNSync();
-                if (!game.settings.get("natural-roll", "enabled")) {
                     return originalShowAnimation.call(this, data, config);
+                };
+            }
+        };
+
+        if (game.dice3d) {
+            log("Patching game.dice3d methods.");
+            patchTarget(game.dice3d);
+            if (game.dice3d.box) {
+                patchTarget(game.dice3d.box);
+                if (game.dice3d.box.animateThrow && !game.dice3d.box._originalAnimateThrow) {
+                    const originalBoxAnimateThrow = game.dice3d.box.animateThrow;
+                    game.dice3d.box._originalAnimateThrow = originalBoxAnimateThrow;
+                    const wrappedBoxAnimateThrow = function(delta) {
+                        const actualEngine = this.throwEngine || this;
+
+                        if (actualEngine._simulationReady === false) {
+                            try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
+                            return;
+                        }
+
+                        if (!this.rolling && !actualEngine.rolling) {
+                            try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
+                            return;
+                        }
+                        const diceList = actualEngine.diceList || this.diceList || [];
+                        if (diceList.length === 0) {
+                            return;
+                        }
+                        for (const die of diceList) {
+                            if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+                                return;
+                            }
+                        }
+                        try {
+                            const res = originalBoxAnimateThrow.call(this, delta);
+                            if (res && typeof res.catch === "function") {
+                                res.catch(() => {});
+                            }
+                            return res;
+                        } catch (e) {
+                            return;
+                        }
+                    };
+                    game.dice3d.box.animateThrow = wrappedBoxAnimateThrow;
+
+                    try {
+                        const ticker = canvas.app?.ticker;
+                        if (ticker?._head) {
+                            let node = ticker._head.next;
+                            while (node) {
+                                if (node.fn === originalBoxAnimateThrow && node.context === game.dice3d.box) {
+                                    node.fn = wrappedBoxAnimateThrow;
+                                    log("Natural Roll | Swapped pre-registered animateThrow ticker node to patched wrapper.");
+                                }
+                                node = node.next;
+                            }
+                        }
+                    } catch(e) {}
                 }
-
-                const rollingUserId = data.naturalRollUser || data.user?.id || data.user || data.throws?.[0]?.user || game.user.id;
-                const isRollingUser = (rollingUserId === game.user.id);
-                const isManualRoll = data.throws?.some(t => t.dice?.some(d => d.options?.naturalRollDieId));
-                const isReplay = data.isNaturalRollReplay || data.throws?.some(t => t.isNaturalRollReplay);
-
-                const isGrabActive = DiceInteractionManager.activeGrabs?.has(rollingUserId);
-
-                if (!isRollingUser && (isManualRoll || isGrabActive) && !isReplay) {
-                    log("Bypassing duplicate _showAnimation (already handled by manual roll, grab, socket replay, or replay disabled).");
-                    const activePromise = game.dice3d?._activeReplayPromises?.[rollingUserId] || game.dice3d?._activeReplayPromise;
-                    if (activePromise) {
-                        return activePromise.then(() => false);
-                    }
-                    return Promise.resolve(false);
+            }
+            if (game.dice3d.pipeline) {
+                log("Patching game.dice3d.pipeline methods.");
+                patchTarget(game.dice3d.pipeline);
+                if (game.dice3d.pipeline.constructor?.prototype) {
+                    patchTarget(game.dice3d.pipeline.constructor.prototype);
                 }
-
-                return originalShowAnimation.call(this, data, config);
-            };
-
+            }
             log("Patched game.dice3d methods successfully.");
         }
     }
 }
+

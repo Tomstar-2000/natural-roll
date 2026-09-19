@@ -5,47 +5,66 @@ export function shouldAutoRoll(roll) {
 }
 
 export function preEvaluateInit(roll) {
-    if (typeof roll.dHope !== "undefined") {
-        const _ = roll.dHope;
-    }
-    if (typeof roll.dFear !== "undefined") {
-        const _ = roll.dFear;
-    }
+    try {
+        if (typeof roll.dHope !== "undefined") {
+            const _ = roll.dHope;
+        }
+        if (typeof roll.dFear !== "undefined") {
+            const _ = roll.dFear;
+        }
+    } catch (e) {}
 }
 
-async function localGetDiceSoNicePreset(type, faces) {
-    if (!game.dice3d) return null;
-    const system = game.dice3d.DiceFactory.systems.get(type.system)?.dice?.get(faces);
-    if (!system) return null;
-
-    if (system.modelFile && !system.modelLoaded) {
-        await system.loadModel(game.dice3d.DiceFactory.loaderGLTF);
-    } else {
-        await system.loadTextures();
-    }
-
+function getDaggerheartDefaultPresets() {
     return {
-        modelFile: system.modelFile,
-        appearance: {
-            ...system.appearance,
-            colorset: type.colorset,
-            font: type.font,
-            fontScale: type.fontScale,
-            ...type
+        hope: {
+            colorset: "daggerheart-hope-colorset",
+            foreground: "#ffffff",
+            background: "#ffe760",
+            diceColor: "#ffe760",
+            labelColor: "#ffffff",
+            outlineColor: "#000000",
+            edgeColor: "#ffffff",
+            texture: "astralsea",
+            material: "metal",
+            system: "standard"
         },
-        sfx: {}
-    };
-}
-
-async function localGetDiceSoNicePresets(roll, hopeFaces, fearFaces, advantageFaces = 'd6') {
-    const appearanceSettings = game.settings.get("daggerheart", "Appearance")?.diceSoNiceData;
-    if (!appearanceSettings) return null;
-
-    return {
-        hope: await localGetDiceSoNicePreset(appearanceSettings.hope, hopeFaces),
-        fear: await localGetDiceSoNicePreset(appearanceSettings.fear, fearFaces),
-        advantage: await localGetDiceSoNicePreset(appearanceSettings.advantage, advantageFaces),
-        disadvantage: await localGetDiceSoNicePreset(appearanceSettings.disadvantage, advantageFaces)
+        fear: {
+            colorset: "daggerheart-fear-colorset",
+            foreground: "#000000",
+            background: "#0032b1",
+            diceColor: "#0032b1",
+            labelColor: "#000000",
+            outlineColor: "#ffffff",
+            edgeColor: "#000000",
+            texture: "astralsea",
+            material: "metal",
+            system: "standard"
+        },
+        advantage: {
+            colorset: "daggerheart-advantage-colorset",
+            foreground: "#ffffff",
+            background: "#008000",
+            diceColor: "#008000",
+            labelColor: "#ffffff",
+            outlineColor: "#000000",
+            edgeColor: "#ffffff",
+            texture: "astralsea",
+            material: "metal",
+            system: "standard"
+        },
+        disadvantage: {
+            colorset: "daggerheart-disadvantage-colorset",
+            foreground: "#000000",
+            background: "#b30000",
+            diceColor: "#b30000",
+            labelColor: "#000000",
+            outlineColor: "#ffffff",
+            edgeColor: "#000000",
+            texture: "astralsea",
+            material: "metal",
+            system: "standard"
+        }
     };
 }
 
@@ -54,26 +73,50 @@ export async function preEvaluate(roll) {
         const dHope = roll.dHope;
         const dFear = roll.dFear;
         if (dHope && dFear) {
-            const advantageState = roll.options?.roll?.advantage?.type ?? roll.options?.roll?.advantage;
-            const advantageFaces = "d" + (roll.data?.rules?.roll?.defaultAdvantageDice ? Number.parseInt(roll.data.rules.roll.defaultAdvantageDice) : 6);
-            const hopeFaces = "d" + (dHope.faces ?? roll.data?.rules?.dualityRoll?.defaultHopeDice ?? 12);
-            const fearFaces = "d" + (dFear.faces ?? roll.data?.rules?.dualityRoll?.defaultFearDice ?? 12);
+            let appearanceSettings = null;
+            try {
+                appearanceSettings = game.settings?.get?.("daggerheart", "Appearance")?.diceSoNiceData;
+            } catch (e) {}
 
-            const presets = await localGetDiceSoNicePresets(
-                roll,
-                hopeFaces,
-                fearFaces,
-                advantageFaces
-            );
-            if (presets) {
-                if (roll.dice[0]) roll.dice[0].options = presets.hope;
-                if (roll.dice[1]) roll.dice[1].options = presets.fear;
-                if (roll.dice[2] && advantageState) {
-                    roll.dice[2].options = advantageState === 1 ? presets.advantage : presets.disadvantage;
-                }
+            const defaults = getDaggerheartDefaultPresets();
+
+            const hopeData = appearanceSettings?.hope || defaults.hope;
+            const fearData = appearanceSettings?.fear || defaults.fear;
+            const advData = appearanceSettings?.advantage || defaults.advantage;
+            const disadvData = appearanceSettings?.disadvantage || defaults.disadvantage;
+
+            if (roll.dice[0]) {
+                const hopePreset = foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.hope, hopeData) : { ...defaults.hope, ...hopeData };
+                roll.dice[0].options = {
+                    ...(roll.dice[0].options || {}),
+                    ...hopePreset,
+                    appearance: { ...hopePreset }
+                };
+            }
+
+            if (roll.dice[1]) {
+                const fearPreset = foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.fear, fearData) : { ...defaults.fear, ...fearData };
+                roll.dice[1].options = {
+                    ...(roll.dice[1].options || {}),
+                    ...fearPreset,
+                    appearance: { ...fearPreset }
+                };
+            }
+
+            const advantageState = roll.options?.roll?.advantage?.type ?? roll.options?.roll?.advantage;
+            if (roll.dice[2] && advantageState) {
+                const advPreset = advantageState === 1
+                    ? (foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.advantage, advData) : { ...defaults.advantage, ...advData })
+                    : (foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.disadvantage, disadvData) : { ...defaults.disadvantage, ...disadvData });
+                roll.dice[2].options = {
+                    ...(roll.dice[2].options || {}),
+                    ...advPreset,
+                    appearance: { ...advPreset }
+                };
             }
         }
     } catch (err) {
         error("Error setting Daggerheart presets during Roll.evaluate:", err);
     }
 }
+

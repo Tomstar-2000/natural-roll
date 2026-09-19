@@ -4,30 +4,30 @@ class Particle {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        
+
         const angle = Math.random() * Math.PI * 2;
         const speed = 0.8 + Math.random() * 3.5;
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed - (1.0 + Math.random() * 1.5);
-        
+
         this.radius = 15 + Math.random() * 25;
         this.growth = 1.2 + Math.random() * 1.8;
-        
-        this.hue = 260 + Math.random() * 65; 
+
+        this.hue = 260 + Math.random() * 65;
         this.alpha = 0.8 + Math.random() * 0.2;
         this.decay = 0.008 + Math.random() * 0.006;
-        
+
         this.friction = 0.94 + Math.random() * 0.02;
     }
 
     update() {
         this.x += this.vx;
         this.y += this.vy;
-        
+
         this.vx *= this.friction;
         this.vy *= this.friction;
         this.vy -= 0.05;
-        
+
         this.radius += this.growth;
         this.alpha -= this.decay;
     }
@@ -40,12 +40,12 @@ class Particle {
             this.x, this.y, this.radius * 0.05,
             this.x, this.y, this.radius
         );
-        
+
         gradient.addColorStop(0, `hsla(${this.hue}, 95%, 68%, ${this.alpha})`);
         gradient.addColorStop(0.2, `hsla(${this.hue}, 85%, 58%, ${this.alpha * 0.7})`);
         gradient.addColorStop(0.6, `hsla(${this.hue}, 75%, 48%, ${this.alpha * 0.25})`);
         gradient.addColorStop(1, `hsla(${this.hue}, 65%, 40%, 0)`);
-        
+
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -58,20 +58,20 @@ class Spark {
     constructor(x, y, hueOverride = null) {
         this.x = x;
         this.y = y;
-        
+
         const angle = Math.random() * Math.PI * 2;
         const speed = 2.0 + Math.random() * 6.0;
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed - 2.0;
-        
+
         this.gravity = 0.18;
         this.alpha = 1.0;
         this.decay = 0.015 + Math.random() * 0.025;
-        
+
         this.hue = hueOverride !== null ? hueOverride : (180 + Math.random() * 40);
         this.radius = 1.2 + Math.random() * 1.8;
         this.friction = 0.95;
-        
+
         this.history = [];
         this.maxHistory = 4;
     }
@@ -84,11 +84,11 @@ class Spark {
 
         this.x += this.vx;
         this.y += this.vy;
-        
+
         this.vx *= this.friction;
         this.vy *= this.friction;
         this.vy += this.gravity;
-        
+
         this.alpha -= this.decay;
     }
 
@@ -97,7 +97,7 @@ class Spark {
         ctx.save();
         ctx.shadowBlur = 6;
         ctx.shadowColor = `hsla(${this.hue}, 100%, 75%, ${this.alpha})`;
-        
+
         if (this.history.length > 1) {
             ctx.strokeStyle = `hsla(${this.hue}, 100%, 85%, ${this.alpha * 0.75})`;
             ctx.lineWidth = this.radius;
@@ -124,16 +124,16 @@ class PortalParticle {
         this.portalY = portalY;
         this.angle = Math.random() * Math.PI * 2;
         this.orbitRadius = radius * (0.85 + Math.random() * 0.3);
-        
+
         this.baseAngularVelocity = 0.05 + Math.random() * 0.05;
         this.radialSpeed = 0.93 + Math.random() * 0.02;
-        
+
         this.alpha = 0.9 + Math.random() * 0.1;
         this.decay = 0.015 + Math.random() * 0.015;
         this.radius = 1.0 + Math.random() * 1.8;
-        
+
         this.hue = 185 + Math.random() * 95;
-        
+
         this.x = this.portalX + Math.cos(this.angle) * this.orbitRadius;
         this.y = this.portalY + Math.sin(this.angle) * this.orbitRadius;
     }
@@ -142,10 +142,10 @@ class PortalParticle {
         const speedFactor = 1.8;
         const acceleration = (0.04 + this.baseAngularVelocity) / (this.orbitRadius * 0.045 + 0.12);
         this.angle += acceleration * speedFactor;
-        
+
         this.orbitRadius *= this.radialSpeed;
         this.alpha -= this.decay;
-        
+
         this.x = this.portalX + Math.cos(this.angle) * this.orbitRadius;
         this.y = this.portalY + Math.sin(this.angle) * this.orbitRadius;
     }
@@ -170,14 +170,14 @@ class PortalVortex {
         this.radius = 0;
         this.currentRadius = 0;
         this.targetRadius = 48 + Math.random() * 12;
-        
+
         this.rotation = 0;
         this.rotSpeed = 0.045 + Math.random() * 0.025;
-        
+
         this.alpha = 1.0;
         this.phase = "grow";
         this.life = 0;
-        
+
         this.hue1 = 185 + Math.random() * 20;
         this.hue2 = 265 + Math.random() * 30;
     }
@@ -211,7 +211,7 @@ class PortalVortex {
         if (this.alpha <= 0 || this.currentRadius <= 0) return;
 
         ctx.save();
-        
+
         ctx.shadowBlur = 20;
         ctx.shadowColor = `hsla(${this.hue1}, 100%, 60%, ${this.alpha * 0.8})`;
 
@@ -230,19 +230,19 @@ class PortalVortex {
         for (let s = 0; s < numSpirals; s++) {
             const startAngle = (s * Math.PI * 2 / numSpirals) + this.rotation;
             ctx.beginPath();
-            
+
             const steps = 25;
             const startR = this.currentRadius * 0.12;
             const endR = this.currentRadius * 0.90;
-            
+
             for (let j = 0; j <= steps; j++) {
                 const progress = j / steps;
                 const angle = startAngle + progress * Math.PI * 2.1;
                 const r = startR + (endR - startR) * progress;
-                
+
                 const sx = this.x + Math.cos(angle) * r;
                 const sy = this.y + Math.sin(angle) * r;
-                
+
                 if (j === 0) {
                     ctx.moveTo(sx, sy);
                 } else {
@@ -266,10 +266,10 @@ class LightningStrike {
     constructor(targetX, targetY) {
         this.targetX = targetX;
         this.targetY = targetY;
-        
+
         this.startX = targetX + (Math.random() - 0.5) * 120;
         this.startY = 0;
-        
+
         this.segments = [];
         this.branches = [];
         this.alpha = 1.0;
@@ -357,7 +357,7 @@ class LightningStrike {
         ctx.shadowBlur = 4;
         ctx.shadowColor = "rgba(255, 255, 255, 1)";
         ctx.strokeStyle = `rgba(255, 255, 255, ${this.alpha})`;
-        
+
         ctx.lineWidth = this.width;
         ctx.beginPath();
         for (const seg of this.segments) {
@@ -393,14 +393,14 @@ export class ParticleManager {
         log("Initializing ParticleManager overlay canvas in viewport-fixed mode.");
         const overlay = document.createElement("canvas");
         overlay.id = "natural-roll-particle-overlay";
-        
+
         overlay.style.position = "fixed";
         overlay.style.top = "0";
         overlay.style.left = "0";
         overlay.style.width = "100vw";
         overlay.style.height = "100vh";
         overlay.style.pointerEvents = "none";
-        overlay.style.zIndex = "999999"; 
+        overlay.style.zIndex = "999999";
 
         document.body.appendChild(overlay);
 
@@ -437,7 +437,7 @@ export class ParticleManager {
 
     static spawnSmokePuff(x, y) {
         log(`Spawning magical smoke puff at absolute screen coordinates (${x}, ${y})`);
-        
+
         const count = 25 + Math.floor(Math.random() * 11);
         for (let i = 0; i < count; i++) {
             const offsetX = (Math.random() - 0.5) * 15;
@@ -456,9 +456,9 @@ export class ParticleManager {
 
     static spawnLightningStrike(x, y) {
         log(`Spawning lightning strike at target coordinates (${x}, ${y})`);
-        
+
         this.lightningStrikes.push(new LightningStrike(x, y));
-        
+
         this.flashAlpha = 0.16;
 
         const sparkCount = 22 + Math.floor(Math.random() * 8);
@@ -471,7 +471,7 @@ export class ParticleManager {
 
     static spawnPortal(x, y) {
         log(`Spawning dimensional portal at target coordinates (${x}, ${y})`);
-        
+
         const vortex = new PortalVortex(x, y);
         this.portalVortices.push(vortex);
 
@@ -485,11 +485,11 @@ export class ParticleManager {
 
     static startLoop() {
         if (this.animationId !== null) return;
-        
+
         const loop = () => {
             this.update();
             this.draw();
-            
+
             if (this.particles.length > 0 || this.lightningStrikes.length > 0 || this.portalVortices.length > 0 || this.flashAlpha > 0) {
                 this.animationId = requestAnimationFrame(loop);
             } else {
@@ -535,7 +535,7 @@ export class ParticleManager {
     static draw() {
         if (!this.ctx || !this.canvas) return;
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        
+
         if (this.flashAlpha > 0) {
             this.ctx.fillStyle = `rgba(225, 240, 255, ${this.flashAlpha})`;
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -560,3 +560,4 @@ export class ParticleManager {
         }
     }
 }
+

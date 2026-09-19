@@ -4,7 +4,7 @@ export function shouldAutoRoll(roll) {
     if (!game.modules.get("midi-qol")?.active) {
         return false;
     }
-    
+
     try {
         const enableWorkflow = game.settings.get("midi-qol", "EnableWorkflow");
         if (enableWorkflow === false) {
@@ -13,7 +13,7 @@ export function shouldAutoRoll(roll) {
 
         const config = globalThis.MidiQOL?.configSettings?.() || game.settings.get("midi-qol", "ConfigSettings") || {};
         const isGM = game.user?.isGM;
-        
+
         const autoRollAttack = isGM ? config.gmAutoAttack : config.autoRollAttack;
         const autoRollDamage = isGM ? config.gmAutoDamage : config.autoRollDamage;
 
@@ -44,7 +44,7 @@ export function shouldAutoRoll(roll) {
         if (isDamage && (autoRollDamage === "always" || autoRollDamage === "onHit")) {
             return true;
         }
-        
+
         if (isSave) {
             if (isGM) {
                 const rollNPCSaves = config.rollNPCSaves || "none";
@@ -65,3 +65,4 @@ export function shouldAutoRoll(roll) {
 
     return false;
 }
+

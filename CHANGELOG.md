@@ -2,6 +2,27 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.2] - 2026-09-19
+
+### Note
+
+> **DO NOT enable Dice So Nice's new built-in "Interactive Rolls" setting using this module.** DSN's interactive roll feature uses Foundry's pseudo-random number generator (RNG) as its base result, whereas **Natural Roll** determines outcomes purely through real-time 3D physics simulations and does not hook into this API.
+
+### Added
+
+- **Dual Foundry V13 & V14 Architecture Support**: Full cross-version compatibility supporting both Foundry V14 (Latest DSN v6+ with `startUnifiedBatch`, top-down camera in XZ-plane, and `ThrowPipeline`) and Foundry V13 (DSN v5.3.4 with Z-axis camera in XY-plane).
+- **Physics-Driven Swing & Idle Sway Motion**: Added responsive swinging and tilting motion to dice while held and dragged, driven by pointer velocity and smoothed via spring physics. Dice gently breathe and sway with organic, desynchronized multi-die phase shifts when held stationary.
+- **Robust Engine Resolution**: Implemented `getThrowEngine` resolution helper to seamlessly bridge `DiceBox` and `ThrowEngine` across all roll, replay, and interaction handlers.
+
+### Fixed
+
+- **V13 DSN `animateThrow` Destructuring TypeError**: Resolved `TypeError: (destructured parameter) is undefined` in DSN v5.3.4 by patching `physicsWorker.exec` to safely handle idle `playStep` queries during manual holds, and intercepting PIXI ticker nodes directly via linked-list inspection.
+- **Cursor Tracking & Mouse Drag Follow**: Fixed cursor coordinate raycasting and canvas projection across both Z-oriented (V13) and Y-oriented (V14) camera spaces so held dice stay centered directly under the user's mouse cursor during drag gestures.
+- **Multi-Dice Spacing Across Versions**: Calibrated geometric spawn offsets and spacing calculations for both V13 and V14 coordinate spaces, preventing held dice from clipping or touching regardless of pool size.
+- **Bundled THREE Dependency Removal**: Removed reliance on global `THREE` variables across the swing loop and cleanup handlers, ensuring compatibility with ES-module bundled Three.js instances in DSN v6+.
+- **Immediate Chat Card Display**: Linked manual roll resolution directly to physical simulation rest duration, eliminating post-throw delays before chat cards render.
+- **Manual Roll Detection for Dice Notations**: Enhanced `startUnifiedBatch` and `start_throw` checks to inspect `dice[].options.isNaturalRollManual` in addition to top-level throw options.
+
 ## [1.5.1] - 2026-08-27
 
 ### Added

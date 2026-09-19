@@ -162,13 +162,15 @@ const initReady = () => {
         }
     }
 
-    game.socket.on("module.natural-roll", (payload) => {
-        console.log("Natural Roll | Received socket event module.natural-roll:", payload);
-        if (payload.authorizedUsers && !payload.authorizedUsers.includes(game.user.id)) {
+    game.socket.on("module.natural-roll", (data) => {
+        console.log("Natural Roll | Received socket event module.natural-roll:", data);
+        const payload = data?.payload || data;
+        const authorizedUsers = data?.authorizedUsers || payload?.authorizedUsers;
+        if (authorizedUsers && !authorizedUsers.includes(game.user.id)) {
             console.log("Natural Roll | Bypassing socket event: Current user is not authorized to see this roll.");
             return;
         }
-        if (payload.type === "grab") {
+        if (data?.type === "grab" || payload?.type === "grab") {
             DiceInteractionManager.handleGrab(payload);
         } else {
             DiceInteractionManager.handleReplay(payload);
@@ -185,3 +187,4 @@ if (game.ready) {
 Hooks.once("diceSoNiceReady", (dice3d) => {
     console.log("%cNatural Roll %c| diceSoNiceReady fired globally at top-level!", "color: #00ffaa; font-weight: bold; background: #222; padding: 2px 4px; border-radius: 3px;", "color: inherit;", dice3d);
 });
+
