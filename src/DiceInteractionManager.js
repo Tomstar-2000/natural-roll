@@ -1,74 +1,17 @@
 import { log, error, getAuthorizedUsers } from "./utils.js";
 import { ParticleManager } from "./ParticleManager.js";
 import { DSNAppearanceResolver } from "./DSNAppearanceResolver.js";
-
-function getCanvasElement(canvas) {
-    if (!canvas) return null;
-    if (canvas.jquery && typeof canvas.get === "function") {
-        return canvas.get(0);
-    }
-    if (canvas[0] instanceof HTMLElement) {
-        return canvas[0];
-    }
-    if (canvas instanceof HTMLElement) {
-        return canvas;
-    }
-    return canvas;
-}
-
-function getThrowEngine(engine) {
-    if (!engine) return game.dice3d?.box?.throwEngine || game.dice3d?.box || null;
-    return engine.throwEngine || game.dice3d?.box?.throwEngine || engine;
-}
-
-function setEngineRolling(engine, value) {
-    if (!engine) return;
-    try { engine.rolling = value; } catch (e) {}
-    if (engine.throwEngine) {
-        try { engine.throwEngine.rolling = value; } catch (e) {}
-    }
-}
-
-function setEngineRunning(engine, value) {
-    if (!engine) return;
-    try { engine.running = value; } catch (e) {}
-    if (engine.throwEngine) {
-        try { engine.throwEngine.running = value; } catch (e) {}
-    }
-}
-
-function renderDSNScene(engine) {
-    const throwEngine = getThrowEngine(engine);
-
-    const diceScene = throwEngine?.diceScene || game.dice3d?.box?.diceScene;
-    const scene3D = diceScene?.scene || throwEngine?.scene || game.dice3d?.box?.scene;
-    if (scene3D) {
-        try { scene3D.updateMatrixWorld(true); } catch (e) {}
-    }
-    (game.dice3d?.box?.renderScene || throwEngine?.diceScene?.renderScene)?.call(game.dice3d?.box || throwEngine?.diceScene);
-}
-
-function disposeObject3D(obj) {
-    if (!obj) return;
-    try {
-        if (typeof obj.traverse === "function") {
-            obj.traverse(child => {
-                if (child.geometry && typeof child.geometry.dispose === "function") {
-                    try { child.geometry.dispose(); } catch (e) {}
-                }
-                if (child.material) {
-                    const materials = Array.isArray(child.material) ? child.material : [child.material];
-                    for (const mat of materials) {
-                        if (!mat) continue;
-                        if (typeof mat.dispose === "function") {
-                            try { mat.dispose(); } catch (e) {}
-                        }
-                    }
-                }
-            });
-        }
-    } catch (e) {}
-}
+import { ReplayManager } from "./ReplayManager.js";
+import { DiceThrowDataBuilder } from "./DiceThrowDataBuilder.js";
+import {
+    getCanvasElement,
+    getThrowEngine,
+    setEngineRolling,
+    setEngineRunning,
+    renderDSNScene,
+    disposeObject3D,
+    stopDSNTicker
+} from "./DSNUtils.js";
 
 let lastPointerPos = { x: 0, y: 0 };
 if (typeof window !== "undefined") {
@@ -79,74 +22,33 @@ if (typeof window !== "undefined") {
 }
 
 export class DiceInteractionManager {
-    static recentReplays = [];
-    static recentChatMessageRolls = [];
-    static activeGrabs = new Set();
-    static activeGrabTimeouts = new Map();
-    static lastCompletedRollTime = 0;
+    static get recentReplays() { return ReplayManager.recentReplays; }
+    static set recentReplays(v) { ReplayManager.recentReplays = v; }
+    static get recentChatMessageRolls() { return ReplayManager.recentChatMessageRolls; }
+    static set recentChatMessageRolls(v) { ReplayManager.recentChatMessageRolls = v; }
+    static get activeGrabs() { return ReplayManager.activeGrabs; }
+    static set activeGrabs(v) { ReplayManager.activeGrabs = v; }
+    static get activeGrabTimeouts() { return ReplayManager.activeGrabTimeouts; }
+    static set activeGrabTimeouts(v) { ReplayManager.activeGrabTimeouts = v; }
+    static get lastCompletedRollTime() { return ReplayManager.lastCompletedRollTime; }
+    static set lastCompletedRollTime(v) { ReplayManager.lastCompletedRollTime = v; }
+    static get replayQueue() { return ReplayManager.replayQueue; }
+    static set replayQueue(v) { ReplayManager.replayQueue = v; }
+    static get isReplayExecuting() { return ReplayManager.isReplayExecuting; }
+    static set isReplayExecuting(v) { ReplayManager.isReplayExecuting = v; }
     static lastCompletedFormula = "";
     static lastCompletedRollType = null;
     static lastCompletedResults = [];
-    static replayQueue = [];
-    static isReplayExecuting = false;
 
     static pruneRecentReplays() {
-        const now = Date.now();
-        const cutoff = now - 15000;
-        this.recentReplays = (this.recentReplays || []).filter(r => r && (now - r.timestamp) < 15000);
-        if (this.recentReplays.length > 50) {
-            this.recentReplays = this.recentReplays.slice(-50);
-        }
+        return ReplayManager.pruneRecentReplays();
     }
 
     static cleanup(engine, resolvePromise = true) {
         if (!engine) return;
         const throwEngine = getThrowEngine(engine);
 
-        const isReplayActive = game.dice3d?._naturalRollReplayPrepared || game.dice3d?._naturalRollReplayActive;
-        const isReplayFinished = game.dice3d?._naturalRollReplayActive && (throwEngine.iteration >= (throwEngine.iterationsNeeded || 0));
-
-        if (!isReplayActive || isReplayFinished) {
-            if (game.dice3d) {
-                game.dice3d._naturalRollReplayPrepared = false;
-                game.dice3d._naturalRollReplayActive = false;
-
-                const replayingUser = throwEngine._naturalRollReplayingUser;
-                if (replayingUser) {
-                    game.dice3d._activeReplayResolves = game.dice3d._activeReplayResolves || {};
-                    if (game.dice3d._activeReplayResolves[replayingUser]) {
-                        game.dice3d._activeReplayResolves[replayingUser]();
-
-                        if (game.dice3d._activeReplayResolve === game.dice3d._activeReplayResolves[replayingUser]) {
-                            game.dice3d._activeReplayResolve = null;
-                            game.dice3d._activeReplayPromise = null;
-                        }
-
-                        delete game.dice3d._activeReplayResolves[replayingUser];
-                    }
-                    if (game.dice3d._activeReplayPromises) {
-                        delete game.dice3d._activeReplayPromises[replayingUser];
-                    }
-                }
-            }
-            const worker = throwEngine.physicsWorker || game.dice3d?.box?.physicsWorker;
-            if (worker && worker._originalExec) {
-                worker.exec = worker._originalExec;
-                delete worker._originalExec;
-                log("Replay Interceptor: restored original worker.exec in cleanup");
-            }
-
-            setTimeout(() => {
-                if (DiceInteractionManager.replayQueue && DiceInteractionManager.replayQueue.length > 0) {
-                    const nextPayload = DiceInteractionManager.replayQueue.shift();
-                    log("Replay Queue: playing next queued replay from user:", nextPayload.user);
-                    DiceInteractionManager.isReplayExecuting = false;
-                    DiceInteractionManager.handleReplay(nextPayload, true);
-                } else {
-                    DiceInteractionManager.isReplayExecuting = false;
-                }
-            }, 100);
-        }
+        ReplayManager.cleanupReplayState(throwEngine);
 
         if (resolvePromise && !throwEngine._naturalRollBypassResolveOnClear) {
             const roll = game.dice3d?._currentLocalRoll;
@@ -207,20 +109,7 @@ export class DiceInteractionManager {
                 styleEl.remove();
             }
         }
-        if (game.dice3d?.box) {
-            const box = game.dice3d.box;
-            if (typeof box.removeTicker === "function") {
-                try { box.removeTicker(box.animateThrow); } catch(e) {}
-                if (box._originalAnimateThrow) {
-                    try { box.removeTicker(box._originalAnimateThrow); } catch(e) {}
-                }
-            } else {
-                try { canvas.app?.ticker?.remove(box.animateThrow, box); } catch(e) {}
-                if (box._originalAnimateThrow) {
-                    try { canvas.app?.ticker?.remove(box._originalAnimateThrow, box); } catch(e) {}
-                }
-            }
-        }
+        stopDSNTicker();
         for (const die of (throwEngine.diceList || []).concat(throwEngine.deadDiceList || [])) {
             if (die?.userData) {
                 die.userData.constrained = false;
@@ -271,20 +160,7 @@ export class DiceInteractionManager {
             };
         }
 
-        if (game.dice3d?.box) {
-            const box = game.dice3d.box;
-            if (typeof box.removeTicker === "function") {
-                try { box.removeTicker(box.animateThrow); } catch(e) {}
-                if (box._originalAnimateThrow) {
-                    try { box.removeTicker(box._originalAnimateThrow); } catch(e) {}
-                }
-            } else {
-                try { canvas.app?.ticker?.remove(box.animateThrow, box); } catch(e) {}
-                if (box._originalAnimateThrow) {
-                    try { canvas.app?.ticker?.remove(box._originalAnimateThrow, box); } catch(e) {}
-                }
-            }
-        }
+        stopDSNTicker();
 
         if (typeof throwEngine.clearAll === "function") {
             try { await throwEngine.clearAll(); } catch (e) {}
@@ -469,17 +345,7 @@ export class DiceInteractionManager {
                     if (dicemesh) {
                         setDieWorldPosition(dicemesh, pos.x, pos.y, pos.z);
                         if (dicemesh.userData?.materialData) {
-                            const matData = dicemesh.userData.materialData;
-                            die.appearance = foundry.utils.mergeObject(die.appearance || {}, {
-                                background: Array.isArray(matData.background) ? matData.background[0] : (matData.background || die.appearance?.background),
-                                foreground: Array.isArray(matData.foreground) ? matData.foreground[0] : (matData.foreground || die.appearance?.foreground),
-                                outline: Array.isArray(matData.outline) ? matData.outline[0] : (matData.outline || die.appearance?.outline),
-                                edge: Array.isArray(matData.edge) ? matData.edge[0] : (matData.edge || die.appearance?.edge),
-                                texture: matData.texture?.name || (typeof matData.texture === "string" ? matData.texture : (die.appearance?.texture?.name || die.appearance?.texture)),
-                                material: matData.material || die.appearance?.material,
-                                font: matData.font || die.appearance?.font,
-                                fontScale: matData.fontScale ?? die.appearance?.fontScale
-                            });
+                            die.appearance = DSNAppearanceResolver.mergeMaterialData(die.appearance, dicemesh.userData.materialData);
                         }
                     }
                     spawned++;
@@ -1665,85 +1531,16 @@ export class DiceInteractionManager {
                 };
             });
 
-            const mappedFaceValues = {};
-            for (const [localId, val] of Object.entries(faceValues || {})) {
-                const dicemesh = localDiceList.find(d => d.id === Number(localId));
-                const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || localId;
-                mappedFaceValues[rollerId] = val;
-            }
-
-            const mappedFinalQuaternions = {};
-            for (const [localId, val] of Object.entries(finalQuaternions || {})) {
-                const dicemesh = localDiceList.find(d => d.id === Number(localId));
-                const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || localId;
-                mappedFinalQuaternions[rollerId] = val;
-            }
-
-            const sanitizedThrows = throws.map(t => {
-                return {
-                    dice: (t.dice || []).map(d => {
-                        return {
-                            type: d.type,
-                            id: d.options?.naturalRollDieId ? `${d.options.naturalRollDieId}-${d.id}` : d.id,
-                            result: d.result,
-                            resultLabel: d.resultLabel,
-                            fvttResult: d.fvttResult,
-                            vectors: d.vectors ? {
-                                pos: d.vectors.pos,
-                                velocity: d.vectors.velocity,
-                                angle: d.vectors.angle
-                            } : undefined,
-                            options: d.options,
-                            appearance: d.appearance ? {
-                                colorset: d.appearance.colorset,
-                                labelColor: d.appearance.labelColor,
-                                diceColor: d.appearance.diceColor,
-                                outlineColor: d.appearance.outlineColor,
-                                edgeColor: d.appearance.edgeColor,
-                                material: d.appearance.material,
-                                font: d.appearance.font,
-                                foreground: d.appearance.foreground,
-                                background: d.appearance.background,
-                                outline: d.appearance.outline,
-                                edge: d.appearance.edge,
-                                texture: typeof d.appearance.texture === "object" ? d.appearance.texture?.name : d.appearance.texture,
-                                fontScale: d.appearance.fontScale,
-                                system: d.appearance.system,
-                                systemSettings: d.appearance.systemSettings
-                            } : undefined
-                        };
-                    }),
-                    dsnConfig: t.dsnConfig ? {
-                        appearance: t.dsnConfig.appearance,
-                        diceLibrary: t.dsnConfig.diceLibrary
-                    } : undefined,
-                    isNaturalRollReplay: true,
-                    isNaturalRollManual: true
-                };
-            });
-
-            const roll = game.dice3d?._currentLocalRoll;
-            const authorizedUsers = getAuthorizedUsers(roll);
-            const payload = {
-                user: game.user.id,
-                naturalRollId: naturalRollId,
-                throws: sanitizedThrows,
-                trajectories: trajectories,
-                detectedCollides: detectedCollides,
-                iterationsNeeded: iterationsNeeded,
-                faceValues: mappedFaceValues,
-                finalQuaternions: mappedFinalQuaternions,
-                deads: deads ? Array.from(deads) : undefined,
-                screenWidth: game.dice3d?.canvas?.clientWidth || window.innerWidth,
-                screenHeight: game.dice3d?.canvas?.clientHeight || window.innerHeight,
-                authorizedUsers: authorizedUsers,
-                magicalEffectStyle: game.settings.get("natural-roll", "magicalEffectStyle")
-            };
-
-            log("Broadcasting manual roll replay payload to other players...", payload);
-            game.socket.emit("module.natural-roll", {
-                type: "throw",
-                payload: payload
+            DiceThrowDataBuilder.broadcastManualRollPayload({
+                naturalRollId,
+                throws,
+                localDiceList,
+                faceValues,
+                finalQuaternions,
+                trajectories,
+                detectedCollides,
+                iterationsNeeded,
+                deads
             });
         } catch (err) {
             error("Failed to broadcast manual roll results:", err);
@@ -1751,360 +1548,19 @@ export class DiceInteractionManager {
     }
 
     static handleGrab(payload) {
-        if (!game.dice3d) return;
-        if (payload.user === game.user.id) return;
-
-        DiceInteractionManager.activeGrabs = DiceInteractionManager.activeGrabs || new Set();
-        DiceInteractionManager.activeGrabTimeouts = DiceInteractionManager.activeGrabTimeouts || new Map();
-
-        if (DiceInteractionManager.activeGrabTimeouts.has(payload.user)) {
-            clearTimeout(DiceInteractionManager.activeGrabTimeouts.get(payload.user));
-        }
-
-        DiceInteractionManager.activeGrabs.add(payload.user);
-        const timer = setTimeout(() => {
-            if (DiceInteractionManager.activeGrabs) {
-                DiceInteractionManager.activeGrabs.delete(payload.user);
-            }
-            if (DiceInteractionManager.activeGrabTimeouts) {
-                DiceInteractionManager.activeGrabTimeouts.delete(payload.user);
-            }
-        }, 30000);
-        DiceInteractionManager.activeGrabTimeouts.set(payload.user, timer);
-
-        log(`Grab state activated for remote user ${payload.user}. Pending throw rendering will be suppressed.`);
+        return ReplayManager.handleGrab(payload);
     }
 
     static handleReplay(payload, isFromQueue = false) {
-        if (!game.dice3d) return;
-        if (payload.user === game.user.id) return;
-
-        const replayResults = Object.values(payload.faceValues || {}).sort();
-        const now = Date.now();
-
-        if (!isFromQueue) {
-            DiceInteractionManager.pruneRecentReplays();
-            DiceInteractionManager.recentReplays.push({
-                user: payload.user,
-                results: replayResults,
-                timestamp: now
-            });
-
-            if (game.dice3d) {
-                game.dice3d._activeReplayPromises = game.dice3d._activeReplayPromises || {};
-                game.dice3d._activeReplayResolves = game.dice3d._activeReplayResolves || {};
-
-                let resolveReplay;
-                const userPromise = new Promise(resolve => {
-                    resolveReplay = resolve;
-                });
-
-                game.dice3d._activeReplayPromises[payload.user] = userPromise;
-                game.dice3d._activeReplayResolves[payload.user] = resolveReplay;
-
-                game.dice3d._activeReplayPromise = userPromise;
-                game.dice3d._activeReplayResolve = resolveReplay;
-
-                setTimeout(() => {
-                    if (game.dice3d?._activeReplayResolves?.[payload.user] === resolveReplay) {
-                        try { resolveReplay(); } catch (e) {}
-                        delete game.dice3d._activeReplayResolves[payload.user];
-                        if (game.dice3d._activeReplayPromises?.[payload.user] === userPromise) {
-                            delete game.dice3d._activeReplayPromises[payload.user];
-                        }
-                    }
-                }, 15000);
-            }
-
-            DiceInteractionManager.replayQueue = DiceInteractionManager.replayQueue || [];
-            if (DiceInteractionManager.isReplayExecuting) {
-                log("Replay Queue: another replay is active. Queueing payload from user:", payload.user);
-                DiceInteractionManager.replayQueue.push(payload);
-                return;
-            }
-        } else {
-            if (game.dice3d && game.dice3d._activeReplayPromises?.[payload.user]) {
-                game.dice3d._activeReplayPromise = game.dice3d._activeReplayPromises[payload.user];
-                game.dice3d._activeReplayResolve = game.dice3d._activeReplayResolves[payload.user];
-            }
-        }
-
-        if (DiceInteractionManager.activeGrabs) {
-            DiceInteractionManager.activeGrabs.delete(payload.user);
-        }
-        if (DiceInteractionManager.activeGrabTimeouts?.has(payload.user)) {
-            clearTimeout(DiceInteractionManager.activeGrabTimeouts.get(payload.user));
-            DiceInteractionManager.activeGrabTimeouts.delete(payload.user);
-        }
-
-        if (!game.settings.get("natural-roll", "enableReplay")) {
-            log("Replay is disabled by user settings, ignoring playback but caching completed timestamp.");
-            DiceInteractionManager.lastCompletedRollTime = Date.now();
-            return;
-        }
-
-        log("Received manual roll replay payload from user:", payload.user);
-
-        DiceInteractionManager.recentChatMessageRolls = DiceInteractionManager.recentChatMessageRolls || [];
-        const matchedChatIndex = DiceInteractionManager.recentChatMessageRolls.findIndex(chat => {
-            return JSON.stringify(chat.results) === JSON.stringify(replayResults) &&
-                   (now - chat.timestamp) < 5000;
-        });
-
-        if (matchedChatIndex !== -1) {
-            DiceInteractionManager.recentChatMessageRolls.splice(matchedChatIndex, 1);
-            log("Bypassing socket replay: ChatMessage animation has already played.");
-            return;
-        }
-
-        const throws = payload.throws;
-        for (const t of throws) {
-            t.isNaturalRollReplay = true;
-            t.replayPayload = payload;
-        }
-
-        DiceInteractionManager.isReplayExecuting = true;
-
-        const showData = {
-            throws: throws,
-            isNaturalRollReplay: true
-        };
-
-        const rollingUser = game.users.get(payload.user);
-        game.dice3d.show(showData, rollingUser || null, false);
+        return ReplayManager.handleReplay(payload, isFromQueue);
     }
 
     static prepareReplayIntercept(engine, replayPayload) {
-        const throwEngine = getThrowEngine(engine);
-        const worker = throwEngine?.physicsWorker || game.dice3d?.box?.physicsWorker;
-        if (!worker) return;
-
-        log("Replay Interceptor: preparing to return mock simulateThrow result");
-        if (game.dice3d) {
-            game.dice3d._naturalRollReplayPrepared = true;
-            game.dice3d._naturalRollReplayActive = false;
-            if (throwEngine) {
-                throwEngine._naturalRollReplayingUser = replayPayload.user;
-            }
-        }
-        if (!worker._originalExec) {
-            worker._originalExec = worker.exec;
-        }
-
-        const dicefactory = throwEngine?.dicefactory || game.dice3d?.box?.dicefactory;
-        if (dicefactory && !dicefactory._naturalRollOriginalGetAppearance) {
-            dicefactory._naturalRollOriginalGetAppearance = dicefactory.getAppearanceForDice;
-            dicefactory.getAppearanceForDice = function(appearanceConfig, diceType, dieContext) {
-                if (dieContext?.appearance) {
-                    return foundry.utils.duplicate(dieContext.appearance);
-                }
-                return dicefactory._naturalRollOriginalGetAppearance.call(this, appearanceConfig, diceType, dieContext);
-            };
-        }
-
-        worker.exec = async function(method, params) {
-            if (method === 'simulateThrow') {
-                if (game.dice3d) {
-                    game.dice3d._naturalRollReplayPrepared = false;
-                    game.dice3d._naturalRollReplayActive = true;
-                }
-                const localDiceList = [...(throwEngine?.diceList || []), ...(throwEngine?.deadDiceList || [])];
-                const localIds = localDiceList.map(d => d.id);
-
-                const faceValues = {};
-                localDiceList.forEach(dicemesh => {
-                    const rollerId = dicemesh.userData?.rollerId || dicemesh.options?.naturalRollDieId || dicemesh.id;
-                    if (rollerId !== undefined) {
-                        faceValues[dicemesh.id] = replayPayload.faceValues[rollerId];
-                    }
-                });
-
-                const finalQuaternions = {};
-                localDiceList.forEach(dicemesh => {
-                    const rollerId = dicemesh.userData?.rollerId || dicemesh.options?.naturalRollDieId || dicemesh.id;
-                    if (rollerId !== undefined) {
-                        finalQuaternions[dicemesh.id] = replayPayload.finalQuaternions?.[rollerId];
-                    }
-                });
-
-                log("Replay Interceptor: returning mock simulateThrow result", {
-                    localIds,
-                    mappedDice: localDiceList.map(d => ({ id: d.id, rollerId: d.userData?.rollerId || d.options?.naturalRollDieId || d.id, type: d.notation?.type })),
-                    trajectoryIds: replayPayload.trajectories.map(t => t.id),
-                    faceValues,
-                    finalQuaternionsKeys: Object.keys(finalQuaternions)
-                });
-
-                const rollerWidth = replayPayload.screenWidth || 1920;
-                const rollerHeight = replayPayload.screenHeight || 1080;
-                const receiverWidth = game.dice3d?.canvas?.clientWidth || window.innerWidth;
-                const receiverHeight = game.dice3d?.canvas?.clientHeight || window.innerHeight;
-
-                const scaleX = receiverWidth / rollerWidth;
-                const scaleY = receiverHeight / rollerHeight;
-                const scale = Math.min(scaleX, scaleY);
-
-                const quaternionsBuffers = [];
-                const positionsBuffers = [];
-                const deads = [];
-
-                localIds.forEach(localId => {
-                    const dicemesh = localDiceList.find(d => d.id === localId);
-                    const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || dicemesh?.id;
-                    const rollerIndex = replayPayload.trajectories.findIndex(t => t.id === rollerId);
-
-                    if (rollerIndex !== -1) {
-                        const trajectory = replayPayload.trajectories[rollerIndex];
-                        quaternionsBuffers.push(new Float32Array(trajectory.quaternions).buffer);
-
-                        try {
-                            if (game.settings.get("natural-roll", "enableMagicalEffects")) {
-                                const canvasRaw = game.dice3d?.canvas;
-                                const dsnCanvas = getCanvasElement(canvasRaw);
-                                const diceScene = game.dice3d?.box?.diceScene || game.dice3d?.box;
-                                if (dsnCanvas && diceScene && diceScene.camera && trajectory.positions?.length >= 3) {
-                                    const camera = diceScene.camera;
-                                    const rect = dsnCanvas.getBoundingClientRect();
-                                    const width = rect.width;
-                                    const height = rect.height;
-
-                                    const pX = trajectory.positions[0] * scale;
-                                    const pY = trajectory.positions[1] * scale;
-                                    const pZ = trajectory.positions[2] * scale;
-
-                                    if (dicemesh && dicemesh.position) {
-                                        const tempV = dicemesh.position.clone();
-                                        tempV.set(pX, pY, pZ);
-                                        tempV.project(camera);
-
-                                        const screenX = ((tempV.x + 1) * width) / 2 + rect.left;
-                                        const screenY = ((-tempV.y + 1) * height) / 2 + rect.top;
-
-                                        const effectStyle = replayPayload.magicalEffectStyle || game.settings.get("natural-roll", "magicalEffectStyle") || "smoke";
-                                        log(`Replay spawn magical effect (${effectStyle}) at screen coordinates: (${screenX}, ${screenY}) for die ${localId}`);
-                                        ParticleManager.spawnEffect(screenX, screenY, effectStyle);
-                                    }
-                                }
-                            }
-                        } catch (err) {
-                            error("Error triggering replay magical effect:", err);
-                        }
-
-                        const posArray = new Float32Array(trajectory.positions);
-                        for (let i = 0; i < posArray.length; i++) {
-                            posArray[i] *= scale;
-                        }
-                        positionsBuffers.push(posArray.buffer);
-
-                        deads.push(replayPayload.deads?.[rollerIndex] ?? false);
-                    } else {
-                        quaternionsBuffers.push(new Float32Array(1001 * 4).buffer);
-                        positionsBuffers.push(new Float32Array(1001 * 3).buffer);
-                        deads.push(false);
-                    }
-                });
-
-                setEngineRunning(throwEngine, (new Date()).getTime());
-                throwEngine._simulationReady = true;
-                if (game.dice3d?.box) {
-                    game.dice3d.box._simulationReady = true;
-                }
-
-                const replayRestMs = Math.max(300, Math.min(3000, ((replayPayload.iterationsNeeded || 60) / 60) * 1000));
-                setTimeout(() => {
-                    const replayingUser = replayPayload.user;
-                    if (replayingUser && game.dice3d?._activeReplayResolves?.[replayingUser]) {
-                        game.dice3d._activeReplayResolves[replayingUser]();
-                        delete game.dice3d._activeReplayResolves[replayingUser];
-                    }
-                    if (dicefactory?._naturalRollOriginalGetAppearance) {
-                        dicefactory.getAppearanceForDice = dicefactory._naturalRollOriginalGetAppearance;
-                        delete dicefactory._naturalRollOriginalGetAppearance;
-                    }
-                    if (worker?._originalExec) {
-                        worker.exec = worker._originalExec;
-                        delete worker._originalExec;
-                    }
-                }, replayRestMs);
-
-                return {
-                    ids: localIds,
-                    quaternionsBuffers,
-                    positionsBuffers,
-                    detectedCollides: replayPayload.detectedCollides,
-                    iterationsNeeded: replayPayload.iterationsNeeded,
-                    faceValues: faceValues,
-                    deads,
-                    finalQuaternions: finalQuaternions
-                };
-            }
-
-            if (method === 'playStep') {
-                return { ids: [], worldAsleep: true };
-            }
-
-            if (typeof worker._originalExec === "function") {
-                return worker._originalExec.call(this, method, params);
-            }
-            return { ids: [], worldAsleep: true };
-        };
+        return ReplayManager.prepareReplayIntercept(engine, replayPayload);
     }
 
     static triggerMagicalEffectsForDice(throwEngine, diceList) {
-        try {
-            log("triggerMagicalEffectsForDice called with", diceList?.length, "dice.");
-            if (!game.settings.get("natural-roll", "enableMagicalEffects")) {
-                log("Magical effects are disabled in settings.");
-                return;
-            }
-            const canvasRaw = game.dice3d?.canvas;
-            const dsnCanvas = getCanvasElement(canvasRaw);
-            if (!dsnCanvas) {
-                log("No DSN canvas found.");
-                return;
-            }
-
-            const diceScene = game.dice3d?.box?.diceScene || game.dice3d?.box;
-            if (!diceScene || !diceScene.camera) {
-                log("No DSN camera or diceScene found.");
-                return;
-            }
-
-            const camera = diceScene.camera;
-            const rect = dsnCanvas.getBoundingClientRect();
-            const width = rect.width;
-            const height = rect.height;
-            log(`DSN canvas bounds: width=${width}, height=${height}, left=${rect.left}, top=${rect.top}`);
-
-            let count = 0;
-            for (const die of diceList) {
-                if (!die) continue;
-                const diePos = die.parent ? die.parent.position : die.position;
-                if (!diePos) {
-                    log("Die has no position property.");
-                    continue;
-                }
-
-                const tempV = diePos.clone();
-                tempV.project(camera);
-
-                const x = ((tempV.x + 1) * width) / 2 + rect.left;
-                const y = ((-tempV.y + 1) * height) / 2 + rect.top;
-
-                log(`Projected 3D position (${diePos.x}, ${diePos.y}, ${diePos.z}) to screen (${x}, ${y})`);
-
-                if (isNaN(x) || isNaN(y)) {
-                    log("Projected coordinates are NaN!");
-                    continue;
-                }
-
-                ParticleManager.spawnEffect(x, y);
-                count++;
-            }
-            log(`Successfully triggered magical effects for ${count} dice.`);
-        } catch (err) {
-            error("Error rendering magical effects:", err);
-        }
+        return ParticleManager.spawnEffectsForDice(throwEngine, diceList);
     }
 }
 

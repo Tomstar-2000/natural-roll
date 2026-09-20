@@ -103,4 +103,18 @@ export class DSNAppearanceResolver {
 
         return getColorSetFn ? getColorSetFn(colorsetName) : null;
     }
+
+    static mergeMaterialData(appearance = {}, matData) {
+        if (!matData) return appearance;
+        return foundry.utils.mergeObject(appearance, {
+            background: Array.isArray(matData.background) ? matData.background[0] : (matData.background || appearance.background),
+            foreground: Array.isArray(matData.foreground) ? matData.foreground[0] : (matData.foreground || appearance.foreground),
+            outline: Array.isArray(matData.outline) ? matData.outline[0] : (matData.outline || appearance.outline),
+            edge: Array.isArray(matData.edge) ? matData.edge[0] : (matData.edge || appearance.edge),
+            texture: matData.texture?.name || (typeof matData.texture === "string" ? matData.texture : (appearance.texture?.name || appearance.texture)),
+            material: matData.material || appearance.material,
+            font: matData.font || appearance.font,
+            fontScale: matData.fontScale ?? appearance.fontScale
+        });
+    }
 }

@@ -1,4 +1,5 @@
-import { log } from "./utils.js";
+import { log, error } from "./utils.js";
+import { getCanvasElement } from "./DSNUtils.js";
 
 class Particle {
     constructor(x, y) {
@@ -577,6 +578,63 @@ export class ParticleManager {
     static clear() {
         if (this.ctx && this.canvas) {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+    }
+
+    static spawnEffectsForDice(throwEngine, diceList) {
+        try {
+            log("spawnEffectsForDice called with", diceList?.length, "dice.");
+            if (!game.settings.get("natural-roll", "enableMagicalEffects")) {
+                log("Magical effects are disabled in settings.");
+                return;
+            }
+            const canvasRaw = game.dice3d?.canvas;
+            const dsnCanvas = getCanvasElement(canvasRaw);
+            if (!dsnCanvas) {
+                log("No DSN canvas found.");
+                return;
+            }
+
+            const diceScene = game.dice3d?.box?.diceScene || game.dice3d?.box;
+            if (!diceScene || !diceScene.camera) {
+                log("No DSN camera or diceScene found.");
+                return;
+            }
+
+            const camera = diceScene.camera;
+            const rect = dsnCanvas.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+            log(`DSN canvas bounds: width=${width}, height=${height}, left=${rect.left}, top=${rect.top}`);
+
+            let count = 0;
+            for (const die of (diceList || [])) {
+                if (!die) continue;
+                const diePos = die.parent ? die.parent.position : die.position;
+                if (!diePos) {
+                    log("Die has no position property.");
+                    continue;
+                }
+
+                const tempV = diePos.clone();
+                tempV.project(camera);
+
+                const x = ((tempV.x + 1) * width) / 2 + rect.left;
+                const y = ((-tempV.y + 1) * height) / 2 + rect.top;
+
+                log(`Projected 3D position (${diePos.x}, ${diePos.y}, ${diePos.z}) to screen (${x}, ${y})`);
+
+                if (isNaN(x) || isNaN(y)) {
+                    log("Projected coordinates are NaN!");
+                    continue;
+                }
+
+                this.spawnEffect(x, y);
+                count++;
+            }
+            log(`Successfully triggered magical effects for ${count} dice.`);
+        } catch (err) {
+            error("Error rendering magical effects:", err);
         }
     }
 }
