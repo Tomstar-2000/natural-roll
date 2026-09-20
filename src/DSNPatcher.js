@@ -600,7 +600,8 @@ export class DSNPatcher {
                         game.socket.emit("module.natural-roll", {
                             type: "grab",
                             user: rollingUserId,
-                            authorizedUsers: users || getAuthorizedUsers(roll)
+                            // Pass `users` explicitly: null means public (DSN convention), undefined means derive.
+                            authorizedUsers: getAuthorizedUsers(roll, users)
                         });
                     }
 

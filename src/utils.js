@@ -6,7 +6,14 @@ export function error(message, ...args) {
     console.error(`%cNatural Roll %c| ${message}`, "color: #ff3333; font-weight: bold; background: #222; padding: 2px 4px; border-radius: 3px;", "color: inherit;", ...args);
 }
 
-export function getAuthorizedUsers(roll = null) {
+export function getAuthorizedUsers(roll = null, users = undefined) {
+    if (users !== undefined) {
+        if (!users || users.length === 0) {
+            return null;
+        }
+        return users.map(u => u?.id ?? u);
+    }
+
     if (globalThis._naturalRollMessageVisibility) {
         const { whisper, blind, rollMode } = globalThis._naturalRollMessageVisibility;
         if (whisper && whisper.length > 0) {
@@ -27,26 +34,9 @@ export function getAuthorizedUsers(roll = null) {
         } else if (rollMode === "blind" || rollMode === "blindroll") {
             return game.users.filter(u => u.isGM).map(u => u.id);
         }
+        return null;
     }
-
     let rollMode = roll?.options?.messageMode || roll?.options?.rollMode;
-
-    if (!rollMode && typeof document !== "undefined") {
-        const activeModeButton = document.querySelector('#message-modes button[aria-pressed="true"]');
-        if (activeModeButton) {
-            rollMode = activeModeButton.dataset.mode;
-        } else {
-            const selectEl = document.querySelector('select[name="rollMode"]');
-            if (selectEl) {
-                rollMode = selectEl.value;
-            }
-        }
-    }
-
-    if (!rollMode) {
-        rollMode = game.settings.get("core", "rollMode");
-    }
-
     if (roll?.options?.whisper && roll.options.whisper.length > 0) {
         const whisper = roll.options.whisper;
         if (roll.options.blind) {
@@ -55,6 +45,21 @@ export function getAuthorizedUsers(roll = null) {
             const set = new Set(whisper);
             set.add(game.user.id);
             return Array.from(set);
+        }
+    }
+
+    if (!roll && !rollMode) {
+        if (typeof document !== "undefined") {
+            const activeModeButton = document.querySelector('#message-modes button[aria-pressed="true"]');
+            if (activeModeButton) {
+                rollMode = activeModeButton.dataset.mode;
+            } else {
+                const selectEl = document.querySelector('select[name="rollMode"]');
+                if (selectEl) rollMode = selectEl.value;
+            }
+        }
+        if (!rollMode) {
+            rollMode = game.settings.get("core", "rollMode");
         }
     }
 
