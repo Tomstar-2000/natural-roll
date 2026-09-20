@@ -149,7 +149,8 @@ export class DSNPatcher {
 
         const originalEvaluate = Roll.prototype.evaluate;
         Roll.prototype.evaluate = async function(options = {}) {
-            if (globalThis._naturalRollMessageVisibility) {
+            const preEvalIsAuto = shouldAutoRoll(this);
+            if (!preEvalIsAuto && globalThis._naturalRollMessageVisibility) {
                 this.options = this.options || {};
                 this.options.rollMode = this.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
                 this.options.blind = this.options.blind !== undefined ? this.options.blind : globalThis._naturalRollMessageVisibility.blind;
@@ -159,7 +160,8 @@ export class DSNPatcher {
                 daggerheartPreEvaluateInit(this);
             }
             const roll = await originalEvaluate.call(this, options);
-            if (globalThis._naturalRollMessageVisibility) {
+            const isAuto = shouldAutoRoll(roll);
+            if (!isAuto && globalThis._naturalRollMessageVisibility) {
                 roll.options = roll.options || {};
                 roll.options.rollMode = roll.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
                 roll.options.blind = roll.options.blind !== undefined ? roll.options.blind : globalThis._naturalRollMessageVisibility.blind;
@@ -167,7 +169,6 @@ export class DSNPatcher {
             }
             if (!game.settings.get("natural-roll", "enabled")) return roll;
 
-            const isAuto = shouldAutoRoll(roll);
             if (isAuto) return roll;
 
             if (roll._naturalRollIntercepted) {
@@ -301,13 +302,17 @@ export class DSNPatcher {
                     try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
                     return;
                 }
-                const diceList = actualEngine.diceList || this.diceList || [];
-                if (diceList.length === 0) {
-                    return;
-                }
-                for (const die of diceList) {
-                    if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+
+                const isNaturalRollHoldActive = !!actualEngine._naturalRollState?._active;
+                if (isNaturalRollHoldActive) {
+                    const diceList = actualEngine.diceList || this.diceList || [];
+                    if (diceList.length === 0) {
                         return;
+                    }
+                    for (const die of diceList) {
+                        if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+                            return;
+                        }
                     }
                 }
                 try {
@@ -405,13 +410,17 @@ export class DSNPatcher {
                         try { canvas.app?.ticker?.remove(this.animateThrow, this); } catch(e) {}
                         return;
                     }
-                    const diceList = actualEngine.diceList || this.diceList || [];
-                    if (diceList.length === 0) {
-                        return;
-                    }
-                    for (const die of diceList) {
-                        if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+
+                    const isNaturalRollHoldActive = !!actualEngine._naturalRollState?._active;
+                    if (isNaturalRollHoldActive) {
+                        const diceList = actualEngine.diceList || this.diceList || [];
+                        if (diceList.length === 0) {
                             return;
+                        }
+                        for (const die of diceList) {
+                            if (!die || !die.sim || !die.sim.stepPositions || !die.sim.stepPositions.length) {
+                                return;
+                            }
                         }
                     }
                     try {
@@ -590,9 +599,10 @@ export class DSNPatcher {
                         return Promise.resolve(false);
                     }
 
-                    const isRollingUser = (!messageID && synchronize !== false) || (rollingUserId === game.user.id && !!game.dice3d._isLocalRollInitiation);
+                    const isAutoRollAtGrab = shouldAutoRoll(roll);
+                    const isRollingUser = (!isAutoRollAtGrab && !messageID && synchronize !== false) || (rollingUserId === game.user.id && !!game.dice3d._isLocalRollInitiation);
 
-                    if (!messageID && synchronize !== false) {
+                    if (!isAutoRollAtGrab && !messageID && synchronize !== false) {
                         game.dice3d._isLocalRollInitiation = true;
                         game.dice3d._currentLocalRoll = roll;
 
@@ -600,7 +610,6 @@ export class DSNPatcher {
                         game.socket.emit("module.natural-roll", {
                             type: "grab",
                             user: rollingUserId,
-                            // Pass `users` explicitly: null means public (DSN convention), undefined means derive.
                             authorizedUsers: getAuthorizedUsers(roll, users)
                         });
                     }
@@ -660,12 +669,12 @@ export class DSNPatcher {
                     };
 
                     let promise;
+                    const isAutoRollForChain = shouldAutoRoll(roll);
+                    game.dice3d._lastShowForRollWasAutoRoll = isAutoRollForChain;
                     if (!isRollingUser) {
                         promise = originalShowForRoll.call(this, roll, user, synchronize, users, blind, messageID, speaker, options);
                     } else {
-                        const autoRoll = shouldAutoRoll(roll);
-                        game.dice3d._lastShowForRollWasAutoRoll = autoRoll;
-                        const syncOption = autoRoll ? synchronize : false;
+                        const syncOption = isAutoRollForChain ? synchronize : false;
                         promise = originalShowForRoll.call(this, roll, user, syncOption, users, blind, messageID, speaker, options);
                     }
 
@@ -693,11 +702,20 @@ export class DSNPatcher {
                     if (!isReplay && game.dice3d) {
                         game.dice3d._naturalRollReplayPrepared = false;
                         game.dice3d._naturalRollReplayActive = false;
+                        const throwEngineForReset = game.dice3d.box?.throwEngine || game.dice3d.box;
+                        if (throwEngineForReset && throwEngineForReset._simulationReady === false) {
+                            delete throwEngineForReset._simulationReady;
+                        }
                         const worker = game.dice3d.box?.physicsWorker;
                         if (worker && worker._originalExec) {
                             worker.exec = worker._originalExec;
                             delete worker._originalExec;
                             log("Replay Interceptor: force restored original worker.exec for new normal roll");
+                        }
+                        const dicefactory = throwEngineForReset?.dicefactory || game.dice3d.box?.dicefactory;
+                        if (dicefactory && dicefactory._naturalRollOriginalGetAppearance) {
+                            dicefactory.getAppearanceForDice = dicefactory._naturalRollOriginalGetAppearance;
+                            delete dicefactory._naturalRollOriginalGetAppearance;
                         }
                     }
 
@@ -717,7 +735,7 @@ export class DSNPatcher {
                         }
                     }
 
-                    if (!isRollingUser) {
+                    if (!isRollingUser && !isAutoRoll) {
                         const isManualRoll = data.throws?.some(t => t.isNaturalRollManual || t.dice?.some(d => d.options?.isNaturalRollManual));
                         const isGrabActive = DiceInteractionManager.activeGrabs?.has(rollingUserId);
 
@@ -741,13 +759,12 @@ export class DSNPatcher {
 
                     const rollingUserId = data.naturalRollUser || data.user?.id || data.user || data.throws?.[0]?.user || game.user.id;
                     const isRollingUser = (rollingUserId === game.user.id);
-                    const isManualRoll = data.throws?.some(t => t.dice?.some(d => d.options?.naturalRollDieId));
                     const isReplay = data.isNaturalRollReplay || data.throws?.some(t => t.isNaturalRollReplay);
 
-                    const isGrabActive = DiceInteractionManager.activeGrabs?.has(rollingUserId);
+                    const isNaturalRollManualThrow = data.throws?.some(t => t.isNaturalRollManual || t.dice?.some(d => d.options?.isNaturalRollManual));
 
-                    if (!isRollingUser && (isManualRoll || isGrabActive) && !isReplay) {
-                        log("Bypassing duplicate _showAnimation (already handled by manual roll, grab, socket replay, or replay disabled).");
+                    if (!isRollingUser && isNaturalRollManualThrow && !isReplay) {
+                        log("Bypassing duplicate _showAnimation (already handled by manual roll, socket replay, or replay disabled).");
                         const activePromise = game.dice3d?._activeReplayPromises?.[rollingUserId] || game.dice3d?._activeReplayPromise;
                         if (activePromise) {
                             return activePromise.then(() => false);

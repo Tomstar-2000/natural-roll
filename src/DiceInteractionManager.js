@@ -438,44 +438,82 @@ export class DiceInteractionManager {
                     die.vectors.velocity = { x: 0, y: 0, z: 0 };
                     die.vectors.angle = { x: 0, y: 0, z: 0 };
 
-                    let appearance = throwEngine.dicefactory.getAppearanceForDice(
-                        notationVectors.dsnConfig.appearance,
-                        die.type,
-                        die
-                    );
-                    if (die.options?.appearance) {
-                        appearance = foundry.utils.mergeObject(appearance, die.options.appearance);
-                    }
-                    if (die.options?.colorset) {
-                        appearance.colorset = die.options.colorset;
-                    }
-                    if (die.options?.diceColor) {
-                        appearance.diceColor = die.options.diceColor;
-                        appearance.background = die.options.diceColor;
-                    }
-                    if (die.options?.labelColor) {
-                        appearance.labelColor = die.options.labelColor;
-                        appearance.foreground = die.options.labelColor;
-                    }
-                    if (die.options?.outlineColor) {
-                        appearance.outlineColor = die.options.outlineColor;
-                        appearance.outline = die.options.outlineColor;
-                    }
-                    if (die.options?.edgeColor) {
-                        appearance.edgeColor = die.options.edgeColor;
-                        appearance.edge = die.options.edgeColor;
-                    }
-                    if (die.options?.texture) {
-                        appearance.texture = die.options.texture;
-                    }
-                    if (die.options?.material) {
-                        appearance.material = die.options.material;
-                    }
-                    if (die.options?.system) {
-                        appearance.system = die.options.system;
-                    }
-                    if (appearance && (!appearance.system || !throwEngine.dicefactory.systems?.has(appearance.system))) {
-                        appearance.system = "standard";
+                    let appearance;
+                    if (die.resolvedAppearance) {
+                        appearance = die.resolvedAppearance;
+                    } else {
+                        const rollingUserDoc = (rollingUserId ? game.users?.get(rollingUserId) : null) || game.user;
+                        let baseConfigAppearance = notationVectors.dsnConfig?.appearance
+                            || (game.dice3d?.constructor?.ALL_CUSTOMIZATION ? game.dice3d.constructor.ALL_CUSTOMIZATION(rollingUserDoc, throwEngine.dicefactory)?.appearance : null)
+                            || (game.dice3d?.constructor?.APPEARANCE ? game.dice3d.constructor.APPEARANCE(rollingUserDoc) : null)
+                            || (game.dice3d?.ALL_CUSTOMIZATION ? game.dice3d.ALL_CUSTOMIZATION(rollingUserDoc, throwEngine.dicefactory)?.appearance : null)
+                            || (game.dice3d?.APPEARANCE ? game.dice3d.APPEARANCE(rollingUserDoc) : null)
+                            || throwEngine.dicefactory?.userAppearance;
+                        const flavorToTry = die.options?.flavor || die.options?.damageType || game.dice3d?._currentLocalRoll?.options?.flavor || game.dice3d?._currentLocalRoll?.options?.type;
+                        if (flavorToTry && !die.options?.flavor) {
+                            die.options = die.options || {};
+                            die.options.flavor = flavorToTry;
+                        }
+                        appearance = throwEngine.dicefactory.getAppearanceForDice(
+                            baseConfigAppearance,
+                            die.type,
+                            die
+                        );
+                        if (flavorToTry && !die.options?.colorset) {
+                            const dsnColorSets = game.dice3d?.exports?.COLORSETS 
+                                || game.dice3d?.constructor?.COLORSETS 
+                                || game.dice3d?.CONFIG?.()?.COLORSETS 
+                                || {};
+                            if (dsnColorSets[flavorToTry]) {
+                                appearance.colorset = flavorToTry;
+                                const colorsetData = (game.dice3d?.exports?.DiceColors?.getColorSet
+                                    || game.dice3d?.constructor?.DiceColors?.getColorSet
+                                    || globalThis.DiceColors?.getColorSet)?.(flavorToTry);
+                                if (colorsetData) {
+                                    if (colorsetData.foreground) appearance.foreground = colorsetData.foreground;
+                                    if (colorsetData.background) appearance.background = colorsetData.background;
+                                    if (colorsetData.outline) appearance.outline = colorsetData.outline;
+                                    if (colorsetData.edge) appearance.edge = colorsetData.edge;
+                                    if (colorsetData.texture) appearance.texture = colorsetData.texture;
+                                    if (colorsetData.material) appearance.material = colorsetData.material;
+                                    if (colorsetData.font) appearance.font = colorsetData.font;
+                                }
+                            }
+                        }
+                        if (die.options?.appearance) {
+                            appearance = foundry.utils.mergeObject(appearance, die.options.appearance);
+                        }
+                        if (die.options?.colorset) {
+                            appearance.colorset = die.options.colorset;
+                        }
+                        if (die.options?.diceColor) {
+                            appearance.diceColor = die.options.diceColor;
+                            appearance.background = die.options.diceColor;
+                        }
+                        if (die.options?.labelColor) {
+                            appearance.labelColor = die.options.labelColor;
+                            appearance.foreground = die.options.labelColor;
+                        }
+                        if (die.options?.outlineColor) {
+                            appearance.outlineColor = die.options.outlineColor;
+                            appearance.outline = die.options.outlineColor;
+                        }
+                        if (die.options?.edgeColor) {
+                            appearance.edgeColor = die.options.edgeColor;
+                            appearance.edge = die.options.edgeColor;
+                        }
+                        if (die.options?.texture) {
+                            appearance.texture = die.options.texture;
+                        }
+                        if (die.options?.material) {
+                            appearance.material = die.options.material;
+                        }
+                        if (die.options?.system) {
+                            appearance.system = die.options.system;
+                        }
+                        if (appearance && (!appearance.system || !throwEngine.dicefactory.systems?.has(appearance.system))) {
+                            appearance.system = "standard";
+                        }
                     }
                     die.appearance = appearance;
 
@@ -500,6 +538,19 @@ export class DiceInteractionManager {
                     const dicemesh = throwEngine.diceList[throwEngine.diceList.length - 1];
                     if (dicemesh) {
                         setDieWorldPosition(dicemesh, pos.x, pos.y, pos.z);
+                        if (dicemesh.userData?.materialData) {
+                            const matData = dicemesh.userData.materialData;
+                            die.appearance = foundry.utils.mergeObject(die.appearance || {}, {
+                                background: Array.isArray(matData.background) ? matData.background[0] : (matData.background || die.appearance?.background),
+                                foreground: Array.isArray(matData.foreground) ? matData.foreground[0] : (matData.foreground || die.appearance?.foreground),
+                                outline: Array.isArray(matData.outline) ? matData.outline[0] : (matData.outline || die.appearance?.outline),
+                                edge: Array.isArray(matData.edge) ? matData.edge[0] : (matData.edge || die.appearance?.edge),
+                                texture: matData.texture?.name || (typeof matData.texture === "string" ? matData.texture : (die.appearance?.texture?.name || die.appearance?.texture)),
+                                material: matData.material || die.appearance?.material,
+                                font: matData.font || die.appearance?.font,
+                                fontScale: matData.fontScale ?? die.appearance?.fontScale
+                            });
+                        }
                     }
                     spawned++;
                 }
@@ -1725,8 +1776,10 @@ export class DiceInteractionManager {
                                 background: d.appearance.background,
                                 outline: d.appearance.outline,
                                 edge: d.appearance.edge,
-                                texture: d.appearance.texture,
-                                fontScale: d.appearance.fontScale
+                                texture: typeof d.appearance.texture === "object" ? d.appearance.texture?.name : d.appearance.texture,
+                                fontScale: d.appearance.fontScale,
+                                system: d.appearance.system,
+                                systemSettings: d.appearance.systemSettings
                             } : undefined
                         };
                     }),
@@ -1908,6 +1961,17 @@ export class DiceInteractionManager {
             worker._originalExec = worker.exec;
         }
 
+        const dicefactory = throwEngine?.dicefactory || game.dice3d?.box?.dicefactory;
+        if (dicefactory && !dicefactory._naturalRollOriginalGetAppearance) {
+            dicefactory._naturalRollOriginalGetAppearance = dicefactory.getAppearanceForDice;
+            dicefactory.getAppearanceForDice = function(appearanceConfig, diceType, dieContext) {
+                if (dieContext?.appearance) {
+                    return foundry.utils.duplicate(dieContext.appearance);
+                }
+                return dicefactory._naturalRollOriginalGetAppearance.call(this, appearanceConfig, diceType, dieContext);
+            };
+        }
+
         worker.exec = async function(method, params) {
             if (method === 'simulateThrow') {
                 if (game.dice3d) {
@@ -2023,6 +2087,14 @@ export class DiceInteractionManager {
                         game.dice3d._activeReplayResolves[replayingUser]();
                         delete game.dice3d._activeReplayResolves[replayingUser];
                     }
+                    if (dicefactory?._naturalRollOriginalGetAppearance) {
+                        dicefactory.getAppearanceForDice = dicefactory._naturalRollOriginalGetAppearance;
+                        delete dicefactory._naturalRollOriginalGetAppearance;
+                    }
+                    if (worker?._originalExec) {
+                        worker.exec = worker._originalExec;
+                        delete worker._originalExec;
+                    }
                 }, replayRestMs);
 
                 return {
@@ -2041,7 +2113,10 @@ export class DiceInteractionManager {
                 return { ids: [], worldAsleep: true };
             }
 
-            return worker._originalExec.call(this, method, params);
+            if (typeof worker._originalExec === "function") {
+                return worker._originalExec.call(this, method, params);
+            }
+            return { ids: [], worldAsleep: true };
         };
     }
 
