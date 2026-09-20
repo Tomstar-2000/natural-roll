@@ -1,5 +1,16 @@
 import { log } from "../utils.js";
 
+export function getRollType(roll) {
+    if (!roll) return null;
+    const rollType = roll.options?.rollType || roll.options?.midiType;
+    if (rollType) return rollType;
+    const flavor = (roll.options?.flavor || "").toLowerCase();
+    if (flavor.includes("attack")) return "attack";
+    if (flavor.includes("damage")) return "damage";
+    if (flavor.includes("save") || flavor.includes("saving") || flavor.includes("check")) return "save";
+    return null;
+}
+
 export function shouldAutoRoll(roll) {
     if (!game.modules.get("midi-qol")?.active) {
         return false;
@@ -17,26 +28,10 @@ export function shouldAutoRoll(roll) {
         const autoRollAttack = isGM ? config.gmAutoAttack : config.autoRollAttack;
         const autoRollDamage = isGM ? config.gmAutoDamage : config.autoRollDamage;
 
-        const rollType = roll.options?.rollType || roll.options?.midiType;
-        let isAttack = (rollType === "attack");
-        let isDamage = (rollType === "damage");
-        let isSave = (rollType === "save" || rollType === "saving" || rollType === "check");
-
-        if (!rollType) {
-            const flavor = (roll.options?.flavor || "").toLowerCase();
-            if (flavor.includes("attack")) isAttack = true;
-            if (flavor.includes("damage")) isDamage = true;
-            if (flavor.includes("save") || flavor.includes("saving") || flavor.includes("check")) isSave = true;
-        }
-
-        log("Evaluating MidiQOL settings for roll type:", {
-            rollType,
-            isAttack,
-            isDamage,
-            isSave,
-            autoRollAttack,
-            autoRollDamage
-        });
+        const rollType = getRollType(roll);
+        const isAttack = (rollType === "attack");
+        const isDamage = (rollType === "damage");
+        const isSave = (rollType === "save" || rollType === "saving" || rollType === "check");
 
         if (isAttack && (autoRollAttack === true || autoRollAttack === "always")) {
             return true;

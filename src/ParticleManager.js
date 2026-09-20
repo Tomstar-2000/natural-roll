@@ -386,29 +386,39 @@ export class ParticleManager {
     static portalVortices = [];
     static flashAlpha = 0;
     static animationId = null;
+    static resizeListenerAttached = false;
+    static MAX_PARTICLES = 300;
+    static MAX_LIGHTNING = 10;
+    static MAX_VORTICES = 10;
 
     static initialize() {
-        if (this.canvas) return;
+        if (this.canvas && document.body.contains(this.canvas)) return;
 
         log("Initializing ParticleManager overlay canvas in viewport-fixed mode.");
-        const overlay = document.createElement("canvas");
-        overlay.id = "natural-roll-particle-overlay";
+        let overlay = document.getElementById("natural-roll-particle-overlay");
+        if (!overlay) {
+            overlay = document.createElement("canvas");
+            overlay.id = "natural-roll-particle-overlay";
 
-        overlay.style.position = "fixed";
-        overlay.style.top = "0";
-        overlay.style.left = "0";
-        overlay.style.width = "100vw";
-        overlay.style.height = "100vh";
-        overlay.style.pointerEvents = "none";
-        overlay.style.zIndex = "999999";
+            overlay.style.position = "fixed";
+            overlay.style.top = "0";
+            overlay.style.left = "0";
+            overlay.style.width = "100vw";
+            overlay.style.height = "100vh";
+            overlay.style.pointerEvents = "none";
+            overlay.style.zIndex = "999999";
 
-        document.body.appendChild(overlay);
+            document.body.appendChild(overlay);
+        }
 
         this.canvas = overlay;
         this.ctx = overlay.getContext("2d");
         this.resizeCanvas();
 
-        window.addEventListener("resize", () => this.resizeCanvas());
+        if (!this.resizeListenerAttached) {
+            this.resizeListenerAttached = true;
+            window.addEventListener("resize", () => this.resizeCanvas());
+        }
     }
 
     static resizeCanvas() {
@@ -438,17 +448,19 @@ export class ParticleManager {
     static spawnSmokePuff(x, y) {
         log(`Spawning magical smoke puff at absolute screen coordinates (${x}, ${y})`);
 
-        const count = 25 + Math.floor(Math.random() * 11);
-        for (let i = 0; i < count; i++) {
-            const offsetX = (Math.random() - 0.5) * 15;
-            const offsetY = (Math.random() - 0.5) * 15;
-            this.particles.push(new Particle(x + offsetX, y + offsetY));
-        }
+        if (this.particles.length < this.MAX_PARTICLES) {
+            const count = 25 + Math.floor(Math.random() * 11);
+            for (let i = 0; i < count; i++) {
+                const offsetX = (Math.random() - 0.5) * 15;
+                const offsetY = (Math.random() - 0.5) * 15;
+                this.particles.push(new Particle(x + offsetX, y + offsetY));
+            }
 
-        const sparkCount = 10 + Math.floor(Math.random() * 6);
-        for (let i = 0; i < sparkCount; i++) {
-            const hue = 260 + Math.random() * 65;
-            this.particles.push(new Spark(x, y, hue));
+            const sparkCount = 10 + Math.floor(Math.random() * 6);
+            for (let i = 0; i < sparkCount; i++) {
+                const hue = 260 + Math.random() * 65;
+                this.particles.push(new Spark(x, y, hue));
+            }
         }
 
         this.startLoop();
@@ -457,13 +469,17 @@ export class ParticleManager {
     static spawnLightningStrike(x, y) {
         log(`Spawning lightning strike at target coordinates (${x}, ${y})`);
 
-        this.lightningStrikes.push(new LightningStrike(x, y));
+        if (this.lightningStrikes.length < this.MAX_LIGHTNING) {
+            this.lightningStrikes.push(new LightningStrike(x, y));
+        }
 
         this.flashAlpha = 0.16;
 
-        const sparkCount = 22 + Math.floor(Math.random() * 8);
-        for (let i = 0; i < sparkCount; i++) {
-            this.particles.push(new Spark(x, y));
+        if (this.particles.length < this.MAX_PARTICLES) {
+            const sparkCount = 22 + Math.floor(Math.random() * 8);
+            for (let i = 0; i < sparkCount; i++) {
+                this.particles.push(new Spark(x, y));
+            }
         }
 
         this.startLoop();
@@ -472,12 +488,16 @@ export class ParticleManager {
     static spawnPortal(x, y) {
         log(`Spawning dimensional portal at target coordinates (${x}, ${y})`);
 
-        const vortex = new PortalVortex(x, y);
-        this.portalVortices.push(vortex);
+        if (this.portalVortices.length < this.MAX_VORTICES) {
+            const vortex = new PortalVortex(x, y);
+            this.portalVortices.push(vortex);
 
-        const count = 12 + Math.floor(Math.random() * 8);
-        for (let i = 0; i < count; i++) {
-            this.particles.push(new PortalParticle(x, y, vortex.targetRadius));
+            if (this.particles.length < this.MAX_PARTICLES) {
+                const count = 12 + Math.floor(Math.random() * 8);
+                for (let i = 0; i < count; i++) {
+                    this.particles.push(new PortalParticle(x, y, vortex.targetRadius));
+                }
+            }
         }
 
         this.startLoop();

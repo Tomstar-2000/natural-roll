@@ -47,6 +47,28 @@ function renderDSNScene(engine) {
     (game.dice3d?.box?.renderScene || throwEngine?.diceScene?.renderScene)?.call(game.dice3d?.box || throwEngine?.diceScene);
 }
 
+function disposeObject3D(obj) {
+    if (!obj) return;
+    try {
+        if (typeof obj.traverse === "function") {
+            obj.traverse(child => {
+                if (child.geometry && typeof child.geometry.dispose === "function") {
+                    try { child.geometry.dispose(); } catch (e) {}
+                }
+                if (child.material) {
+                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+                    for (const mat of materials) {
+                        if (!mat) continue;
+                        if (typeof mat.dispose === "function") {
+                            try { mat.dispose(); } catch (e) {}
+                        }
+                    }
+                }
+            });
+        }
+    } catch (e) {}
+}
+
 let lastPointerPos = { x: 0, y: 0 };
 if (typeof window !== "undefined") {
     window.addEventListener("pointermove", (e) => {
@@ -59,9 +81,22 @@ export class DiceInteractionManager {
     static recentReplays = [];
     static recentChatMessageRolls = [];
     static activeGrabs = new Set();
+    static activeGrabTimeouts = new Map();
     static lastCompletedRollTime = 0;
+    static lastCompletedFormula = "";
+    static lastCompletedRollType = null;
+    static lastCompletedResults = [];
     static replayQueue = [];
     static isReplayExecuting = false;
+
+    static pruneRecentReplays() {
+        const now = Date.now();
+        const cutoff = now - 15000;
+        this.recentReplays = (this.recentReplays || []).filter(r => r && (now - r.timestamp) < 15000);
+        if (this.recentReplays.length > 50) {
+            this.recentReplays = this.recentReplays.slice(-50);
+        }
+    }
 
     static cleanup(engine, resolvePromise = true) {
         if (!engine) return;
@@ -198,6 +233,12 @@ export class DiceInteractionManager {
     static async handleHoldAndRoll(engine, throws, callback, rollingUserId) {
         const throwEngine = getThrowEngine(engine);
         if (!throwEngine) return;
+
+        if (throwEngine._naturalRollState?._active) {
+            log("Hold-and-roll screen already active. Ignoring duplicate invocation.");
+            return;
+        }
+
         setEngineRolling(throwEngine, false);
 
         throwEngine._naturalRollBypassResolveOnClear = true;
@@ -255,6 +296,7 @@ export class DiceInteractionManager {
                 const child = throwEngine.diceScene.scene.children[k];
                 if (child && (child.type === "Group" || child.isGroup)) {
                     throwEngine.diceScene.scene.remove(child);
+                    disposeObject3D(child);
                 }
             }
         }
@@ -1223,7 +1265,7 @@ export class DiceInteractionManager {
                     }
                 }
 
-                DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+                DiceInteractionManager.pruneRecentReplays();
                 DiceInteractionManager.recentReplays.push({
                     user: game.user.id,
                     results: Object.values(simResult.faceValues || {}).sort(),
@@ -1484,7 +1526,7 @@ export class DiceInteractionManager {
                     }
                 }
 
-                DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+                DiceInteractionManager.pruneRecentReplays();
                 DiceInteractionManager.recentReplays.push({
                     user: game.user.id,
                     results: Object.values(simResult.faceValues || {}).sort(),
@@ -1625,9 +1667,12 @@ export class DiceInteractionManager {
 
             const localDiceList = [...(throwEngine.diceList || []), ...(throwEngine.deadDiceList || [])];
 
+            const neededSteps = Math.min(1001, (iterationsNeeded || 150) + 10);
             const trajectories = ids.map((id, index) => {
-                const qArr = Array.from(new Float32Array(quaternionsBuffers[index]));
-                const pArr = Array.from(new Float32Array(positionsBuffers[index]));
+                const rawQ = new Float32Array(quaternionsBuffers[index]);
+                const rawP = new Float32Array(positionsBuffers[index]);
+                const qArr = Array.from(rawQ.subarray(0, neededSteps * 4));
+                const pArr = Array.from(rawP.subarray(0, neededSteps * 3));
 
                 const dicemesh = localDiceList.find(d => d.id === id);
                 const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || id;
@@ -1727,7 +1772,23 @@ export class DiceInteractionManager {
         if (payload.user === game.user.id) return;
 
         DiceInteractionManager.activeGrabs = DiceInteractionManager.activeGrabs || new Set();
+        DiceInteractionManager.activeGrabTimeouts = DiceInteractionManager.activeGrabTimeouts || new Map();
+
+        if (DiceInteractionManager.activeGrabTimeouts.has(payload.user)) {
+            clearTimeout(DiceInteractionManager.activeGrabTimeouts.get(payload.user));
+        }
+
         DiceInteractionManager.activeGrabs.add(payload.user);
+        const timer = setTimeout(() => {
+            if (DiceInteractionManager.activeGrabs) {
+                DiceInteractionManager.activeGrabs.delete(payload.user);
+            }
+            if (DiceInteractionManager.activeGrabTimeouts) {
+                DiceInteractionManager.activeGrabTimeouts.delete(payload.user);
+            }
+        }, 30000);
+        DiceInteractionManager.activeGrabTimeouts.set(payload.user, timer);
+
         log(`Grab state activated for remote user ${payload.user}. Pending throw rendering will be suppressed.`);
     }
 
@@ -1739,7 +1800,7 @@ export class DiceInteractionManager {
         const now = Date.now();
 
         if (!isFromQueue) {
-            DiceInteractionManager.recentReplays = DiceInteractionManager.recentReplays || [];
+            DiceInteractionManager.pruneRecentReplays();
             DiceInteractionManager.recentReplays.push({
                 user: payload.user,
                 results: replayResults,
@@ -1760,6 +1821,16 @@ export class DiceInteractionManager {
 
                 game.dice3d._activeReplayPromise = userPromise;
                 game.dice3d._activeReplayResolve = resolveReplay;
+
+                setTimeout(() => {
+                    if (game.dice3d?._activeReplayResolves?.[payload.user] === resolveReplay) {
+                        try { resolveReplay(); } catch (e) {}
+                        delete game.dice3d._activeReplayResolves[payload.user];
+                        if (game.dice3d._activeReplayPromises?.[payload.user] === userPromise) {
+                            delete game.dice3d._activeReplayPromises[payload.user];
+                        }
+                    }
+                }, 15000);
             }
 
             DiceInteractionManager.replayQueue = DiceInteractionManager.replayQueue || [];
@@ -1777,6 +1848,10 @@ export class DiceInteractionManager {
 
         if (DiceInteractionManager.activeGrabs) {
             DiceInteractionManager.activeGrabs.delete(payload.user);
+        }
+        if (DiceInteractionManager.activeGrabTimeouts?.has(payload.user)) {
+            clearTimeout(DiceInteractionManager.activeGrabTimeouts.get(payload.user));
+            DiceInteractionManager.activeGrabTimeouts.delete(payload.user);
         }
 
         if (!game.settings.get("natural-roll", "enableReplay")) {

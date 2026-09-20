@@ -2,6 +2,13 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.3] - 2026-09-20
+
+### Fixed
+
+- **DnD5e & Midi-QOL Double Roll Prevention**: Resolved an issue on DnD5e with Midi-QOL where evaluating an attack roll caused a duplicate hold-and-roll prompt due to Midi-QOL cloning the attack roll and re-submitting it without a message ID, while ensuring legitimate rerolls (inspiration, luck, abilities) proceed as expected.
+- **Memory Leak & Out-of-Memory (OOM) Mitigations**: Prevented browser tab crashes and memory leaks by bounding `recentReplays` and `recentChatMessageRolls` history sizes, guarding against duplicate particle canvas overlays, cleaning up unreferenced global resize listeners, and properly purging pending grab timeouts.
+
 ## [1.5.2] - 2026-09-19
 
 ### Note
