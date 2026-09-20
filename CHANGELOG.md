@@ -2,6 +2,12 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.4] - 2026-09-20
+
+### Fixed
+
+- **System-Agnostic Double Roll Prevention (PF2e & others)**: Resolved an issue where systems that evaluate multiple rolls sequentially as part of one action (e.g. PF2e splash damage, secondary damage instances) triggered a duplicate hold-and-roll prompt for each companion roll. A companion-roll guard now detects rolls that start within the same JS microtask chain as a completed manual roll (via an event-loop-aware flag cleared by `setTimeout(0)`) and silently skips the hold-and-roll for them. This is entirely system-agnostic and confirmed working on both Foundry V13 (DSN 5.3.4) and V14 (DSN 6+).
+
 ## [1.5.3] - 2026-09-20
 
 ### Fixed

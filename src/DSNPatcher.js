@@ -183,6 +183,14 @@ export class DSNPatcher {
 
             roll._naturalRollIntercepted = true;
 
+            if (DiceInteractionManager._companionWindowActive) {
+                log("Skipping hold-and-roll for companion roll (same microtask chain as completed manual roll).");
+                roll.options = roll.options || {};
+                roll.options._naturalRollCompleted = true;
+                roll._naturalRollCompleted = true;
+                return roll;
+            }
+
             roll.options = roll.options || {};
             roll.options.isNaturalRollManual = true;
 
@@ -220,6 +228,14 @@ export class DSNPatcher {
                     DiceInteractionManager.lastCompletedRollType = getSystemRollType(roll);
                     DiceInteractionManager.lastCompletedResults = roll.dice ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort() : [];
                     DiceInteractionManager.lastCompletedRollTime = Date.now();
+                    DiceInteractionManager._companionWindowActive = true;
+                    if (DiceInteractionManager._companionWindowTimer) {
+                        clearTimeout(DiceInteractionManager._companionWindowTimer);
+                    }
+                    DiceInteractionManager._companionWindowTimer = setTimeout(() => {
+                        DiceInteractionManager._companionWindowActive = false;
+                        DiceInteractionManager._companionWindowTimer = null;
+                    }, 0);
                     if (game.dice3d) {
                         game.dice3d._currentLocalRoll = null;
                         game.dice3d._isLocalRollInitiation = false;
@@ -240,7 +256,29 @@ export class DSNPatcher {
             const isAutoRoll = rolls.some(roll => shouldAutoRoll(roll));
             if (isAutoRoll) return;
 
-            const allAlreadyCompleted = rolls.every(r => r._naturalRollCompleted || r.options?._naturalRollCompleted || r._evaluated);
+            const isRollCompleted = (r) => {
+                if (!r) return false;
+                if (r._naturalRollCompleted || r.options?._naturalRollCompleted) return true;
+                if (r._evaluated) return true;
+                const dice = r.dice || [];
+                if (dice.length > 0 && dice.every(d => (d.results || []).length > 0)) {
+                    return true;
+                }
+                if (r.total !== undefined && r.total !== null && !isNaN(r.total)) {
+                    return true;
+                }
+                return false;
+            };
+
+            const now = Date.now();
+            const messageDiceResults = rolls.flatMap(r => (r.dice || []).flatMap(d => (d.results || []).map(res => res.result))).sort();
+            const matchesRecentManualRoll = (
+                DiceInteractionManager.lastCompletedResults?.length > 0 &&
+                (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 6000) &&
+                JSON.stringify(DiceInteractionManager.lastCompletedResults) === JSON.stringify(messageDiceResults)
+            );
+
+            const allAlreadyCompleted = rolls.every(isRollCompleted) || matchesRecentManualRoll;
             if (allAlreadyCompleted) {
                 message.updateSource({
                     "flags.natural-roll.alreadyRendered": true,
@@ -576,18 +614,23 @@ export class DSNPatcher {
                         DiceInteractionManager.lastCompletedResults?.length > 0 &&
                         JSON.stringify(DiceInteractionManager.lastCompletedResults) === JSON.stringify(rollResults)
                     );
-                    const isMidiQOLDuplicate = (
+                    const isRecentCompletedRollMatch = (
                         !isLocalEvaluateRoll &&
                         rollingUserId === game.user.id &&
-                        !messageID &&
                         (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 6000) &&
                         isSameRollType &&
                         isSameFormula &&
                         hasSameResults
                     );
 
-                    if (rollingUserId === game.user.id && (isAlreadyRendered || rollCompleted || isMidiQOLDuplicate)) {
-                        log(`Bypassing duplicate showForRoll for rolling user: roll already completed.`);
+                    const isCompanionRollInTransactionWindow = (
+                        !isLocalEvaluateRoll &&
+                        rollingUserId === game.user.id &&
+                        !!DiceInteractionManager._companionWindowActive
+                    );
+
+                    if (rollingUserId === game.user.id && (isAlreadyRendered || rollCompleted || isRecentCompletedRollMatch || isCompanionRollInTransactionWindow)) {
+                        log(`Bypassing duplicate showForRoll for rolling user: roll already completed or companion roll.`);
                         if (game.dice3d?._currentLocalRoll === roll) {
                             game.dice3d._currentLocalRoll = null;
                         }
