@@ -40,6 +40,119 @@ export class DiceInteractionManager {
     static lastCompletedRollType = null;
     static lastCompletedResults = [];
 
+    static _getMeshesForRoll(termMeshes, rIdx, meshesPerRoll) {
+        const meshesForRoll = termMeshes.filter(m => {
+            const rollerId = m.userData?.rollerId || "";
+            return rollerId.endsWith(`-${rIdx}`) || (!rollerId.includes(`-${rIdx}`) && rIdx === 0);
+        });
+        return meshesForRoll.length === meshesPerRoll
+            ? meshesForRoll
+            : termMeshes.slice(rIdx * meshesPerRoll, (rIdx + 1) * meshesPerRoll);
+    }
+
+    static _computePercentile(activeMeshes, faceValues) {
+        let tensMesh = activeMeshes.find(m => {
+            const type = m.notation?.type || m.notation?.vectors?.type || m.shape;
+            const digitPlace = m.userData?.digitPlace ?? m.notation?.digitPlace;
+            return type === "d100" || digitPlace?.divisor === 10;
+        }) || activeMeshes[0];
+
+        let unitsMesh = activeMeshes.find(m => {
+            const type = m.notation?.type || m.notation?.vectors?.type || m.shape;
+            const digitPlace = m.userData?.digitPlace ?? m.notation?.digitPlace;
+            return m !== tensMesh && (type === "d10" || digitPlace?.divisor === 1);
+        }) || activeMeshes[1];
+
+        const tensVal = tensMesh ? faceValues[tensMesh.id] : undefined;
+        const unitsVal = unitsMesh ? faceValues[unitsMesh.id] : undefined;
+        if (tensVal === undefined && unitsVal === undefined) return null;
+
+        let tens = 0;
+        if (tensVal !== undefined) {
+            tens = (tensVal === 100 || tensVal === 10) ? 0 : (tensVal >= 10 ? tensVal % 100 : (tensVal * 10) % 100);
+        }
+        const units = unitsVal !== undefined ? unitsVal % 10 : 0;
+        const total = tens + units;
+        return total === 0 ? 100 : total;
+    }
+
+    static _computeCompound(activeMeshes, faceValues) {
+        activeMeshes.sort((a, b) => {
+            const divA = (a.userData?.digitPlace ?? a.notation?.digitPlace)?.divisor ?? 0;
+            const divB = (b.userData?.digitPlace ?? b.notation?.digitPlace)?.divisor ?? 0;
+            return divB - divA;
+        });
+
+        let combinedDigits = "";
+        let hasValue = false;
+        for (const mesh of activeMeshes) {
+            const val = faceValues[mesh.id];
+            if (val !== undefined && val !== null) {
+                hasValue = true;
+                combinedDigits += String(val);
+            }
+        }
+        return hasValue ? parseInt(combinedDigits, 10) : null;
+    }
+
+    static applyFaceValuesToRoll(roll, localDiceList, faceValues) {
+        if (!roll) return;
+        const rollDice = roll.dice || [];
+
+        rollDice.forEach(term => {
+            const termRollerId = term.options?.naturalRollDieId;
+            if (!termRollerId) return;
+
+            const termMeshes = localDiceList.filter(mesh => mesh.userData?.rollerId?.startsWith(termRollerId));
+            if (!termMeshes.length) return;
+
+            const totalRolls = term.results?.length || 0;
+            const meshesPerRoll = totalRolls > 0 ? termMeshes.length / totalRolls : 1;
+
+            if (term.faces === 100) {
+                for (let rIdx = 0; rIdx < totalRolls; rIdx++) {
+                    const activeMeshes = DiceInteractionManager._getMeshesForRoll(termMeshes, rIdx, meshesPerRoll);
+                    const total = DiceInteractionManager._computePercentile(activeMeshes, faceValues);
+                    if (total !== null && term.results?.[rIdx]) {
+                        term.results[rIdx].result = total;
+                    }
+                }
+            } else if (meshesPerRoll > 1 && Number.isInteger(meshesPerRoll)) {
+                for (let rIdx = 0; rIdx < totalRolls; rIdx++) {
+                    const activeMeshes = DiceInteractionManager._getMeshesForRoll(termMeshes, rIdx, meshesPerRoll);
+                    const total = DiceInteractionManager._computeCompound(activeMeshes, faceValues);
+                    if (total !== null && !isNaN(total) && term.results?.[rIdx]) {
+                        term.results[rIdx].result = total;
+                    }
+                }
+            } else {
+                termMeshes.forEach((mesh, index) => {
+                    const finalVal = faceValues[mesh.id];
+                    if (finalVal !== undefined && finalVal !== null && term.results?.[index]) {
+                        term.results[index].result = finalVal;
+                    }
+                });
+            }
+        });
+
+        roll.terms.forEach(t => {
+            if (t.results) {
+                t._total = t.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
+            }
+        });
+
+        if (typeof roll._evaluateTotal === "function") {
+            roll._total = roll._evaluateTotal();
+        } else {
+            roll._total = roll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
+        }
+
+        DiceInteractionManager.lastCompletedResults = roll.dice
+            ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort()
+            : [];
+        DiceInteractionManager.lastCompletedRollTime = Date.now();
+    }
+
     static pruneRecentReplays() {
         return ReplayManager.pruneRecentReplays();
     }
@@ -953,35 +1066,8 @@ export class DiceInteractionManager {
 
                 const roll = game.dice3d?._currentLocalRoll;
                 if (roll) {
-                    const rollDice = roll.dice || [];
                     const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
-
-                    rollDice.forEach(term => {
-                        const termRollerId = term.options?.naturalRollDieId;
-                        if (!termRollerId) return;
-
-                        const termMeshes = localDiceList.filter(mesh => mesh.userData?.rollerId?.startsWith(termRollerId));
-                        termMeshes.forEach((mesh, index) => {
-                            const finalVal = faceValues[mesh.id];
-                            if (finalVal !== undefined && term.results?.[index]) {
-                                term.results[index].result = finalVal;
-                            }
-                        });
-                    });
-
-                    roll.terms.forEach(t => {
-                        if (t.results) {
-                            t._total = t.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
-                        }
-                    });
-
-                    if (typeof roll._evaluateTotal === "function") {
-                        roll._total = roll._evaluateTotal();
-                    } else {
-                        roll._total = roll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
-                    }
-
-                    DiceInteractionManager.lastCompletedRollTime = Date.now();
+                    DiceInteractionManager.applyFaceValuesToRoll(roll, localDiceList, faceValues);
                 }
 
                 if (throws) {
@@ -998,7 +1084,11 @@ export class DiceInteractionManager {
                                     const finalVal = faceValues[dicemesh.id];
                                     if (finalVal !== undefined && finalVal !== null) {
                                         d.result = finalVal;
-                                        d.resultLabel = finalVal.toString();
+                                        if (d.type === "d100" || dicemesh.notation?.type === "d100") {
+                                            d.resultLabel = (finalVal === 10 || finalVal === 100 || finalVal === 0) ? "00" : (finalVal < 10 ? (finalVal * 10).toString() : finalVal.toString());
+                                        } else {
+                                            d.resultLabel = finalVal.toString();
+                                        }
                                         dicemesh.result = finalVal;
                                     }
                                 }
@@ -1303,33 +1393,8 @@ export class DiceInteractionManager {
 
                 const roll = game.dice3d?._currentLocalRoll;
                 if (roll) {
-                    const rollDice = roll.dice || [];
                     const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
-
-                    rollDice.forEach(term => {
-                        const termRollerId = term.options?.naturalRollDieId;
-                        if (!termRollerId) return;
-
-                        const termMeshes = localDiceList.filter(mesh => mesh.userData?.rollerId?.startsWith(termRollerId));
-                        termMeshes.forEach((mesh, index) => {
-                            const finalVal = faceValues[mesh.id];
-                            if (finalVal !== undefined && finalVal !== null && term.results?.[index]) {
-                                term.results[index].result = finalVal;
-                            }
-                        });
-                    });
-
-                    roll.terms.forEach(t => {
-                        if (t.results) {
-                            t._total = t.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
-                        }
-                    });
-
-                    if (typeof roll._evaluateTotal === "function") {
-                        roll._total = roll._evaluateTotal();
-                    } else {
-                        roll._total = roll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
-                    }
+                    DiceInteractionManager.applyFaceValuesToRoll(roll, localDiceList, faceValues);
                 }
 
                 const ephemeralDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
