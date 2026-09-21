@@ -2,6 +2,13 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.5] - 2026-09-21
+
+### Fixed
+
+- **Compound & Percentile Dice Evaluation**: Resolved an issue where compound rolls (e.g. multi-digit dice such as D66 or percentile d100 rolled as tens and units) were not correctly evaluated and reflected in chat messages and roll results. Multi-mesh rolls now properly resolve their respective digit places and divisors, calculating accurate combined outcomes for percentile dice and compound dice expressions.
+- **Percentile Die Result Labels**: Fixed result label formatting for tens dice (`d100` notation) so that face values are properly represented (such as displaying `"00"` for zero/hundred faces and appropriate decade labels) in Dice So Nice throw data.
+
 ## [1.5.4] - 2026-09-20
 
 ### Fixed
