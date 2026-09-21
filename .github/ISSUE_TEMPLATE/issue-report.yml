@@ -1,0 +1,56 @@
+name: Issue Report
+description: Report an issue with the module
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please fill out the form below to help me troubleshoot it.
+  
+  - type: dropdown
+    id: foundry-version
+    attributes:
+      label: FoundryVTT Version
+      description: Which major version of FoundryVTT are you currently running?
+      options:
+        - v13
+        - v14
+    validations:
+      required: true
+
+  - type: input
+    id: game-system
+    attributes:
+      label: Game System
+      placeholder: e.g., dnd5e, pf2e, call-of-cthulhu
+      description: What game system are you using this module with?
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue-description
+    attributes:
+      label: Issue Description
+      description: Provide a clear and concise description of what the issue is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Click dice on dice tray...
+        2. Click roll...
+        3. Double click on 3D dice...
+      description: Explain the exact steps needed to recreate the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: macro-code
+    attributes:
+      label: Associated Macro (Optional)
+      description: If this issue involves a custom macro, paste the JavaScript/HTML code here.
+      render: javascript
+    validations:
+      required: false
