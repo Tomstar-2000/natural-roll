@@ -2,6 +2,13 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.6] - 2026-09-21
+
+### Fixed
+
+- **Parenthetical & Compound Formula Support**: Fixed an issue where formulas containing nested parenthetical terms with mathematical operations and special system dice (e.g. `/r (1DG*100)+(1d6*10)+1DB`) failed to spawn all dice simultaneously or failed to evaluate arithmetic operations properly. Inner sub-rolls within parenthetical terms are now permitted to evaluate without premature manual interception so that the top-level roll orchestrates all dice together.
+- **Recursive Roll Totals & Custom Die Labels**: Updated `applyFaceValuesToRoll` to recursively traverse and re-evaluate all inner rolls (`ParentheticalTerm` and `PoolTerm`), properly re-evaluating arithmetic expressions and totals when physics face values are applied, and dynamically preserving custom system die labels via `getResultLabel`.
+
 ## [1.5.5] - 2026-09-21
 
 ### Fixed

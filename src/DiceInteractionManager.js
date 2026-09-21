@@ -95,6 +95,23 @@ export class DiceInteractionManager {
         return hasValue ? parseInt(combinedDigits, 10) : null;
     }
 
+    static _formatResultLabel(die, dicemesh, finalVal, roll) {
+        if (die.type === "d100" || dicemesh?.notation?.type === "d100") {
+            return (finalVal === 10 || finalVal === 100 || finalVal === 0) ? "00" : (finalVal < 10 ? (finalVal * 10).toString() : finalVal.toString());
+        }
+        const termId = die.options?.naturalRollDieId;
+        const dieTerm = roll?.dice?.find(dt => dt.options?.naturalRollDieId === termId) || die.fvttDie;
+        if (dieTerm && typeof dieTerm.getResultLabel === "function") {
+            try {
+                const lbl = dieTerm.getResultLabel({ result: finalVal });
+                return (lbl !== undefined && lbl !== null) ? String(lbl) : finalVal.toString();
+            } catch (e) {
+                return finalVal.toString();
+            }
+        }
+        return finalVal.toString();
+    }
+
     static applyFaceValuesToRoll(roll, localDiceList, faceValues) {
         if (!roll) return;
         const rollDice = roll.dice || [];
@@ -135,17 +152,28 @@ export class DiceInteractionManager {
             }
         });
 
-        roll.terms.forEach(t => {
-            if (t.results) {
-                t._total = t.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
+        const reevaluateTotals = (targetRoll) => {
+            if (!targetRoll || !targetRoll.terms) return;
+            for (const term of targetRoll.terms) {
+                if (term.roll) {
+                    reevaluateTotals(term.roll);
+                } else if (term.rolls) {
+                    for (const subRoll of term.rolls) {
+                        reevaluateTotals(subRoll);
+                    }
+                }
+                if (term.results) {
+                    term._total = term.results.reduce((sum, r) => sum + (r.active && !r.discarded ? r.result : 0), 0);
+                }
             }
-        });
+            if (typeof targetRoll._evaluateTotal === "function") {
+                targetRoll._total = targetRoll._evaluateTotal();
+            } else if (targetRoll.terms) {
+                targetRoll._total = targetRoll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
+            }
+        };
 
-        if (typeof roll._evaluateTotal === "function") {
-            roll._total = roll._evaluateTotal();
-        } else {
-            roll._total = roll.terms.reduce((sum, t) => sum + (t.total || 0), 0);
-        }
+        reevaluateTotals(roll);
 
         DiceInteractionManager.lastCompletedResults = roll.dice
             ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort()
@@ -1064,14 +1092,13 @@ export class DiceInteractionManager {
                     }
                 }
 
+                const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
                 const roll = game.dice3d?._currentLocalRoll;
                 if (roll) {
-                    const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
                     DiceInteractionManager.applyFaceValuesToRoll(roll, localDiceList, faceValues);
                 }
 
                 if (throws) {
-                    const localDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
                     throws.forEach(t => {
                         if (t.dice) {
                             t.dice.forEach(d => {
@@ -1084,11 +1111,7 @@ export class DiceInteractionManager {
                                     const finalVal = faceValues[dicemesh.id];
                                     if (finalVal !== undefined && finalVal !== null) {
                                         d.result = finalVal;
-                                        if (d.type === "d100" || dicemesh.notation?.type === "d100") {
-                                            d.resultLabel = (finalVal === 10 || finalVal === 100 || finalVal === 0) ? "00" : (finalVal < 10 ? (finalVal * 10).toString() : finalVal.toString());
-                                        } else {
-                                            d.resultLabel = finalVal.toString();
-                                        }
+                                        d.resultLabel = DiceInteractionManager._formatResultLabel(d, dicemesh, finalVal, roll);
                                         dicemesh.result = finalVal;
                                     }
                                 }

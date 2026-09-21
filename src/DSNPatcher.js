@@ -147,103 +147,115 @@ export class DSNPatcher {
             DSNPatcher.patchDSN();
         }
 
+        const applyMessageVisibility = (targetRoll) => {
+            if (!targetRoll || !globalThis._naturalRollMessageVisibility) return;
+            targetRoll.options = targetRoll.options || {};
+            targetRoll.options.rollMode = targetRoll.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
+            targetRoll.options.blind = targetRoll.options.blind !== undefined ? targetRoll.options.blind : globalThis._naturalRollMessageVisibility.blind;
+            targetRoll.options.whisper = targetRoll.options.whisper || globalThis._naturalRollMessageVisibility.whisper;
+        };
+
+        let evaluateDepth = 0;
         const originalEvaluate = Roll.prototype.evaluate;
         Roll.prototype.evaluate = async function(options = {}) {
-            const preEvalIsAuto = shouldAutoRoll(this);
-            if (!preEvalIsAuto && globalThis._naturalRollMessageVisibility) {
-                this.options = this.options || {};
-                this.options.rollMode = this.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
-                this.options.blind = this.options.blind !== undefined ? this.options.blind : globalThis._naturalRollMessageVisibility.blind;
-                this.options.whisper = this.options.whisper || globalThis._naturalRollMessageVisibility.whisper;
-            }
-            if (game.system?.id === "daggerheart") {
-                daggerheartPreEvaluateInit(this);
-            }
-            const roll = await originalEvaluate.call(this, options);
-            const isAuto = shouldAutoRoll(roll);
-            if (!isAuto && globalThis._naturalRollMessageVisibility) {
-                roll.options = roll.options || {};
-                roll.options.rollMode = roll.options.rollMode || globalThis._naturalRollMessageVisibility.rollMode;
-                roll.options.blind = roll.options.blind !== undefined ? roll.options.blind : globalThis._naturalRollMessageVisibility.blind;
-                roll.options.whisper = roll.options.whisper || globalThis._naturalRollMessageVisibility.whisper;
-            }
-            if (!game.settings.get("natural-roll", "enabled")) return roll;
+            evaluateDepth++;
+            try {
+                const preEvalIsAuto = shouldAutoRoll(this);
+                if (!preEvalIsAuto) {
+                    applyMessageVisibility(this);
+                }
+                if (game.system?.id === "daggerheart") {
+                    daggerheartPreEvaluateInit(this);
+                }
+                const roll = await originalEvaluate.call(this, options);
+                const isAuto = shouldAutoRoll(roll);
+                if (!isAuto) {
+                    applyMessageVisibility(roll);
+                }
+                if (!game.settings.get("natural-roll", "enabled")) return roll;
 
-            if (isAuto) return roll;
+                if (isAuto) return roll;
 
-            if (roll._naturalRollIntercepted) {
-                return roll;
-            }
-
-            if (game.dice3d?._currentLocalRoll && game.dice3d._currentLocalRoll !== roll) {
-                if (!game.dice3d._currentLocalRoll._evaluated) {
+                if (evaluateDepth > 1) {
                     return roll;
                 }
-            }
 
-            roll._naturalRollIntercepted = true;
+                if (roll._naturalRollIntercepted) {
+                    return roll;
+                }
 
-            if (DiceInteractionManager._companionWindowActive) {
-                log("Skipping hold-and-roll for companion roll (same microtask chain as completed manual roll).");
-                roll.options = roll.options || {};
-                roll.options._naturalRollCompleted = true;
-                roll._naturalRollCompleted = true;
-                return roll;
-            }
-
-            roll.options = roll.options || {};
-            roll.options.isNaturalRollManual = true;
-
-            if (game.system?.id === "daggerheart") {
-                await daggerheartPreEvaluate(roll);
-            }
-
-            if (game.dice3d) {
-                game.dice3d._currentLocalRoll = roll;
-
-                let timeoutId;
-                const timeoutPromise = new Promise((resolve) => {
-                    timeoutId = setTimeout(() => resolve(roll), 60000);
-                });
-                const manualRollPromise = new Promise((resolve) => {
-                    roll._naturalRollResolve = () => {
-                        if (timeoutId) clearTimeout(timeoutId);
-                        resolve(roll);
-                    };
-                });
-                try {
-                    const dsnPromise = game.dice3d.showForRoll(roll, game.user, true);
-                    if (dsnPromise && typeof dsnPromise.catch === "function") {
-                        dsnPromise.catch(err => error("DSN showForRoll error:", err));
+                if (game.dice3d?._currentLocalRoll && game.dice3d._currentLocalRoll !== roll) {
+                    if (!game.dice3d._currentLocalRoll._evaluated) {
+                        return roll;
                     }
-                    await Promise.race([manualRollPromise, timeoutPromise]);
-                } catch (err) {
-                    error("Error playing manual roll in Roll.evaluate:", err);
-                } finally {
-                    if (timeoutId) clearTimeout(timeoutId);
-                    roll._naturalRollCompleted = true;
+                }
+
+                roll._naturalRollIntercepted = true;
+
+                if (DiceInteractionManager._companionWindowActive) {
+                    log("Skipping hold-and-roll for companion roll (same microtask chain as completed manual roll).");
                     roll.options = roll.options || {};
                     roll.options._naturalRollCompleted = true;
-                    DiceInteractionManager.lastCompletedFormula = roll.formula;
-                    DiceInteractionManager.lastCompletedRollType = getSystemRollType(roll);
-                    DiceInteractionManager.lastCompletedResults = roll.dice ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort() : [];
-                    DiceInteractionManager.lastCompletedRollTime = Date.now();
-                    DiceInteractionManager._companionWindowActive = true;
-                    if (DiceInteractionManager._companionWindowTimer) {
-                        clearTimeout(DiceInteractionManager._companionWindowTimer);
-                    }
-                    DiceInteractionManager._companionWindowTimer = setTimeout(() => {
-                        DiceInteractionManager._companionWindowActive = false;
-                        DiceInteractionManager._companionWindowTimer = null;
-                    }, 0);
-                    if (game.dice3d) {
-                        game.dice3d._currentLocalRoll = null;
-                        game.dice3d._isLocalRollInitiation = false;
-                    }
-                    delete roll._naturalRollResolve;
+                    roll._naturalRollCompleted = true;
+                    return roll;
                 }
+
+                roll.options = roll.options || {};
+                roll.options.isNaturalRollManual = true;
+
+                if (game.system?.id === "daggerheart") {
+                    await daggerheartPreEvaluate(roll);
+                }
+
+                if (game.dice3d) {
+                    game.dice3d._currentLocalRoll = roll;
+
+                    let timeoutId;
+                    const timeoutPromise = new Promise((resolve) => {
+                        timeoutId = setTimeout(() => resolve(roll), 60000);
+                    });
+                    const manualRollPromise = new Promise((resolve) => {
+                        roll._naturalRollResolve = () => {
+                            if (timeoutId) clearTimeout(timeoutId);
+                            resolve(roll);
+                        };
+                    });
+                    try {
+                        const dsnPromise = game.dice3d.showForRoll(roll, game.user, true);
+                        if (dsnPromise && typeof dsnPromise.catch === "function") {
+                            dsnPromise.catch(err => error("DSN showForRoll error:", err));
+                        }
+                        await Promise.race([manualRollPromise, timeoutPromise]);
+                    } catch (err) {
+                        error("Error playing manual roll in Roll.evaluate:", err);
+                    } finally {
+                        if (timeoutId) clearTimeout(timeoutId);
+                        roll._naturalRollCompleted = true;
+                        roll.options = roll.options || {};
+                        roll.options._naturalRollCompleted = true;
+                        DiceInteractionManager.lastCompletedFormula = roll.formula;
+                        DiceInteractionManager.lastCompletedRollType = getSystemRollType(roll);
+                        DiceInteractionManager.lastCompletedResults = roll.dice ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort() : [];
+                        DiceInteractionManager.lastCompletedRollTime = Date.now();
+                        DiceInteractionManager._companionWindowActive = true;
+                        if (DiceInteractionManager._companionWindowTimer) {
+                            clearTimeout(DiceInteractionManager._companionWindowTimer);
+                        }
+                        DiceInteractionManager._companionWindowTimer = setTimeout(() => {
+                            DiceInteractionManager._companionWindowActive = false;
+                            DiceInteractionManager._companionWindowTimer = null;
+                        }, 0);
+                        if (game.dice3d) {
+                            game.dice3d._currentLocalRoll = null;
+                            game.dice3d._isLocalRollInitiation = false;
+                        }
+                        delete roll._naturalRollResolve;
+                    }
+                }
+                return roll;
+            } finally {
+                evaluateDepth--;
             }
-            return roll;
         };
 
         Hooks.on("preCreateChatMessage", (message, options, userId) => {
