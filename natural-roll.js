@@ -5,31 +5,7 @@ console.log("%cNatural Roll %c| Script file parsed and running!", "color: #00ffa
 
 Hooks.once('init', () => {
     console.log("Natural Roll | Hooks.once('init') callback running.");
-    game.settings.register("natural-roll", "enabled", {
-        name: "NATURAL_ROLL.Settings.Enabled.Name",
-        hint: "NATURAL_ROLL.Settings.Enabled.Hint",
-        scope: "client",
-        config: true,
-        requiresReload: false,
-        type: Boolean,
-        default: true
-    });
-
-    game.settings.register("natural-roll", "flickMultiplier", {
-        name: "NATURAL_ROLL.Settings.FlickMultiplier.Name",
-        hint: "NATURAL_ROLL.Settings.FlickMultiplier.Hint",
-        scope: "client",
-        config: true,
-        requiresReload: false,
-        type: Number,
-        default: 1.0,
-        range: {
-            min: 0.1,
-            max: 5.0,
-            step: 0.1
-        }
-    });
-
+    // --- GM / World Settings ---
     game.settings.register("natural-roll", "enableTimeout", {
         name: "NATURAL_ROLL.Settings.EnableTimeout.Name",
         hint: "NATURAL_ROLL.Settings.EnableTimeout.Hint",
@@ -70,6 +46,32 @@ Hooks.once('init', () => {
             min: 20,
             max: 200,
             step: 5
+        }
+    });
+
+    // --- User / Client Settings ---
+    game.settings.register("natural-roll", "enabled", {
+        name: "NATURAL_ROLL.Settings.Enabled.Name",
+        hint: "NATURAL_ROLL.Settings.Enabled.Hint",
+        scope: "client",
+        config: true,
+        requiresReload: false,
+        type: Boolean,
+        default: true
+    });
+
+    game.settings.register("natural-roll", "flickMultiplier", {
+        name: "NATURAL_ROLL.Settings.FlickMultiplier.Name",
+        hint: "NATURAL_ROLL.Settings.FlickMultiplier.Hint",
+        scope: "client",
+        config: true,
+        requiresReload: false,
+        type: Number,
+        default: 1.0,
+        range: {
+            min: 0.1,
+            max: 5.0,
+            step: 0.1
         }
     });
 

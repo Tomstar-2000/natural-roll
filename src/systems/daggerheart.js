@@ -15,104 +15,84 @@ export function preEvaluateInit(roll) {
     } catch (e) {}
 }
 
-function getDaggerheartDefaultPresets() {
-    return {
-        hope: {
-            colorset: "daggerheart-hope-colorset",
-            foreground: "#ffffff",
-            background: "#ffe760",
-            diceColor: "#ffe760",
-            labelColor: "#ffffff",
-            outlineColor: "#000000",
-            edgeColor: "#ffffff",
-            texture: "astralsea",
-            material: "metal",
-            system: "standard"
-        },
-        fear: {
-            colorset: "daggerheart-fear-colorset",
-            foreground: "#000000",
-            background: "#0032b1",
-            diceColor: "#0032b1",
-            labelColor: "#000000",
-            outlineColor: "#ffffff",
-            edgeColor: "#000000",
-            texture: "astralsea",
-            material: "metal",
-            system: "standard"
-        },
-        advantage: {
-            colorset: "daggerheart-advantage-colorset",
-            foreground: "#ffffff",
-            background: "#008000",
-            diceColor: "#008000",
-            labelColor: "#ffffff",
-            outlineColor: "#000000",
-            edgeColor: "#ffffff",
-            texture: "astralsea",
-            material: "metal",
-            system: "standard"
-        },
-        disadvantage: {
-            colorset: "daggerheart-disadvantage-colorset",
-            foreground: "#000000",
-            background: "#b30000",
-            diceColor: "#b30000",
-            labelColor: "#000000",
-            outlineColor: "#ffffff",
-            edgeColor: "#000000",
-            texture: "astralsea",
-            material: "metal",
-            system: "standard"
-        }
-    };
-}
-
 export async function preEvaluate(roll) {
     try {
         const dHope = roll.dHope;
         const dFear = roll.dFear;
-        if (dHope && dFear) {
+        const isFateRoll = roll.options?.title === "Fate Roll" 
+            || roll.data?.fateType 
+            || roll.options?.headerTitle === "Hope"
+            || roll.options?.headerTitle === "Fear"
+            || roll.options?.roll?.type === "fate" 
+            || roll.options?.type === "fate" 
+            || roll.formula?.toLowerCase().includes("fate");
+
+        if (dHope || dFear || isFateRoll) {
             let appearanceSettings = null;
             try {
                 appearanceSettings = game.settings?.get?.("daggerheart", "Appearance")?.diceSoNiceData;
             } catch (e) {}
 
-            const defaults = getDaggerheartDefaultPresets();
+            const hopeData = appearanceSettings?.hope;
+            const fearData = appearanceSettings?.fear;
+            const advData = appearanceSettings?.advantage;
+            const disadvData = appearanceSettings?.disadvantage;
 
-            const hopeData = appearanceSettings?.hope || defaults.hope;
-            const fearData = appearanceSettings?.fear || defaults.fear;
-            const advData = appearanceSettings?.advantage || defaults.advantage;
-            const disadvData = appearanceSettings?.disadvantage || defaults.disadvantage;
+            const applyPresetToTerm = (term, preset, modifier, defaultColorset) => {
+                if (!term) return;
 
-            if (roll.dice[0]) {
-                const hopePreset = foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.hope, hopeData) : { ...defaults.hope, ...hopeData };
-                roll.dice[0].options = {
-                    ...(roll.dice[0].options || {}),
-                    ...hopePreset,
-                    appearance: { ...hopePreset }
-                };
-            }
+                if (modifier) {
+                    if (!term.modifiers) {
+                        term.modifiers = [modifier];
+                    } else if (!term.modifiers.includes(modifier)) {
+                        term.modifiers.push(modifier);
+                    }
+                }
 
-            if (roll.dice[1]) {
-                const fearPreset = foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.fear, fearData) : { ...defaults.fear, ...fearData };
-                roll.dice[1].options = {
-                    ...(roll.dice[1].options || {}),
-                    ...fearPreset,
-                    appearance: { ...fearPreset }
-                };
-            }
+                term.options = term.options || {};
+                if (preset) {
+                    Object.assign(term.options, preset);
+                    term.options.appearance = { ...(term.options.appearance || {}), ...preset };
+                } else if (defaultColorset) {
+                    if (!term.options.colorset) {
+                        term.options.colorset = defaultColorset;
+                    }
+                    if (!term.options.appearance) {
+                        term.options.appearance = { colorset: defaultColorset };
+                    } else if (!term.options.appearance.colorset) {
+                        term.options.appearance.colorset = defaultColorset;
+                    }
+                }
+            };
 
-            const advantageState = roll.options?.roll?.advantage?.type ?? roll.options?.roll?.advantage;
-            if (roll.dice[2] && advantageState) {
-                const advPreset = advantageState === 1
-                    ? (foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.advantage, advData) : { ...defaults.advantage, ...advData })
-                    : (foundry?.utils?.mergeObject ? foundry.utils.mergeObject(defaults.disadvantage, disadvData) : { ...defaults.disadvantage, ...disadvData });
-                roll.dice[2].options = {
-                    ...(roll.dice[2].options || {}),
-                    ...advPreset,
-                    appearance: { ...advPreset }
-                };
+            const diceTerms = (roll.dice && roll.dice.length > 0) 
+                ? roll.dice 
+                : (roll.terms || []).filter(t => t.faces || t.results);
+
+            if (diceTerms.length === 0) return;
+
+            if (dHope && dFear) {
+                applyPresetToTerm(diceTerms[0], hopeData, 'h', 'daggerheart-hope-colorset');
+                applyPresetToTerm(diceTerms[1], fearData, 'f', 'daggerheart-fear-colorset');
+
+                const advantageState = roll.options?.roll?.advantage?.type ?? roll.options?.roll?.advantage;
+                if (diceTerms[2] && advantageState) {
+                    const isAdv = advantageState === 1;
+                    const advPreset = isAdv ? advData : disadvData;
+                    const advMod = isAdv ? 'a' : 'd';
+                    const advColorset = isAdv ? 'daggerheart-advantage-colorset' : 'daggerheart-disadvantage-colorset';
+                    applyPresetToTerm(diceTerms[2], advPreset, advMod, advColorset);
+                }
+            } else if (isFateRoll) {
+                const isFearFate = roll.data?.fateType?.toLowerCase() === "fear" || roll.options?.headerTitle?.toLowerCase() === "fear";
+                const fatePreset = isFearFate ? fearData : hopeData;
+                const fateMod = isFearFate ? 'f' : 'h';
+                const fateColorset = isFearFate ? 'daggerheart-fear-colorset' : 'daggerheart-hope-colorset';
+                applyPresetToTerm(diceTerms[0], fatePreset, fateMod, fateColorset);
+            } else if (dHope) {
+                applyPresetToTerm(diceTerms[0], hopeData, 'h', 'daggerheart-hope-colorset');
+            } else if (dFear) {
+                applyPresetToTerm(diceTerms[0], fearData, 'f', 'daggerheart-fear-colorset');
             }
         }
     } catch (err) {

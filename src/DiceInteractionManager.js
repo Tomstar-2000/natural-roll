@@ -114,7 +114,9 @@ export class DiceInteractionManager {
 
     static applyFaceValuesToRoll(roll, localDiceList, faceValues) {
         if (!roll) return;
-        const rollDice = roll.dice || [];
+        const rollDice = (roll.dice && roll.dice.length > 0)
+            ? roll.dice
+            : (roll.terms || []).filter(t => t.faces || t.results);
 
         rollDice.forEach(term => {
             const termRollerId = term.options?.naturalRollDieId;

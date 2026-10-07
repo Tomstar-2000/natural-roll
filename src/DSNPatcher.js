@@ -110,6 +110,7 @@ export class DSNPatcher {
             };
         }
 
+
         const RollTermClass = foundry.dice?.terms?.RollTerm;
         if (RollTermClass) {
             Object.defineProperty(RollTermClass.prototype, "options", {
@@ -294,7 +295,8 @@ export class DSNPatcher {
             if (allAlreadyCompleted) {
                 message.updateSource({
                     "flags.natural-roll.alreadyRendered": true,
-                    "flags.dice-so-nice.interactive": false
+                    "flags.dice-so-nice.interactive": false,
+                    "flags.dice-so-nice.interactiveThrow": null
                 });
                 DiceInteractionManager.lastCompletedRollTime = Date.now();
                 return;
@@ -313,7 +315,8 @@ export class DSNPatcher {
 
             const updates = {
                 rolls: serializedRolls,
-                "flags.dice-so-nice.interactive": false
+                "flags.dice-so-nice.interactive": false,
+                "flags.dice-so-nice.interactiveThrow": null
             };
             message.updateSource(updates);
 
@@ -596,7 +599,9 @@ export class DSNPatcher {
                         return originalShowForRoll.call(this, roll, user, synchronize, users, blind, messageID, speaker, options);
                     }
 
-                    const rollDice = roll.dice || [];
+                    const rollDice = (roll.dice && roll.dice.length > 0)
+                        ? roll.dice
+                        : (roll.terms || []).filter(t => t.faces || t.results);
                     if (!game.settings.get("natural-roll", "enableReplay")) {
                         rollDice.forEach(die => {
                             if (die.results) {

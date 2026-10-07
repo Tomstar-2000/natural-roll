@@ -2,6 +2,18 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.5.7] - 2026-10-07
+
+### Added
+
+- **Organized Settings Menu**: Reorganized module settings into distinct GM/World-level settings (timeouts, grab radius) and Client/User-level settings (flick strength, spawn at cursor, shake SFX, dice spread, replays, and magical particle FX) for cleaner configuration.
+
+### Fixed
+
+- **Dice So Nice 6.4+ / V14 Interactive Throw Conflict**: Resolved an issue where Dice So Nice (v6.4+) flagged chat messages as pending interactive throws (`flags.dice-so-nice.interactiveThrow`), conflicting with manual physical rolling and roll completion state.
+- **Roll Terms & Compound Formula Resolution**: Hardened roll term detection across `DSNPatcher` and `DiceInteractionManager` to cleanly fall back to `roll.terms` whenever `roll.dice` is empty or lazily structured, ensuring face values and replays are reliably matched and applied.
+- **Daggerheart Fate Rolls & Appearance Presets**: Enhanced Daggerheart system support to detect Fate rolls (`dHope` vs `dFear`), dynamically reading and applying user-configured Dice So Nice appearance presets and color sets to hope/fear/advantage/disadvantage dice terms.
+
 ## [1.5.6] - 2026-09-21
 
 ### Fixed
