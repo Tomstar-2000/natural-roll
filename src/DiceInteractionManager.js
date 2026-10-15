@@ -177,9 +177,10 @@ export class DiceInteractionManager {
 
         reevaluateTotals(roll);
 
-        DiceInteractionManager.lastCompletedResults = roll.dice
-            ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort()
-            : [];
+        const completedDice = (roll.dice && roll.dice.length > 0)
+            ? roll.dice
+            : (roll.terms || []).filter(t => t.faces || t.results);
+        DiceInteractionManager.lastCompletedResults = completedDice.flatMap(d => (d.results || []).map(r => r.result)).sort();
         DiceInteractionManager.lastCompletedRollTime = Date.now();
     }
 

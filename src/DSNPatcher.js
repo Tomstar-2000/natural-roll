@@ -236,7 +236,10 @@ export class DSNPatcher {
                         roll.options._naturalRollCompleted = true;
                         DiceInteractionManager.lastCompletedFormula = roll.formula;
                         DiceInteractionManager.lastCompletedRollType = getSystemRollType(roll);
-                        DiceInteractionManager.lastCompletedResults = roll.dice ? roll.dice.flatMap(d => (d.results || []).map(r => r.result)).sort() : [];
+                        const completedDice = (roll.dice && roll.dice.length > 0)
+                            ? roll.dice
+                            : (roll.terms || []).filter(t => t.faces || t.results);
+                        DiceInteractionManager.lastCompletedResults = completedDice.flatMap(d => (d.results || []).map(r => r.result)).sort();
                         DiceInteractionManager.lastCompletedRollTime = Date.now();
                         DiceInteractionManager._companionWindowActive = true;
                         if (DiceInteractionManager._companionWindowTimer) {
@@ -284,7 +287,12 @@ export class DSNPatcher {
             };
 
             const now = Date.now();
-            const messageDiceResults = rolls.flatMap(r => (r.dice || []).flatMap(d => (d.results || []).map(res => res.result))).sort();
+            const messageDiceResults = rolls.flatMap(r => {
+                const dice = (r.dice && r.dice.length > 0)
+                    ? r.dice
+                    : (r.terms || []).filter(t => t.faces || t.results);
+                return dice.flatMap(d => (d.results || []).map(res => res.result));
+            }).sort();
             const matchesRecentManualRoll = (
                 DiceInteractionManager.lastCompletedResults?.length > 0 &&
                 (now - (DiceInteractionManager.lastCompletedRollTime || 0) < 6000) &&
