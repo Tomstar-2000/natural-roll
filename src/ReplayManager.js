@@ -1,6 +1,8 @@
 import { log, error } from "./utils.js";
 import { ParticleManager } from "./ParticleManager.js";
-import { getCanvasElement, getThrowEngine, setEngineRunning } from "./DSNUtils.js";
+import { getCanvasElement, getThrowEngine, setEngineRunning, getPlaybackDurationMs, LANDING_GRACE_MS } from "./DSNUtils.js";
+
+const REPLAY_SAFETY_TIMEOUT_MS = 15000;
 
 export class ReplayManager {
     static recentReplays = [];
@@ -124,6 +126,10 @@ export class ReplayManager {
                 game.dice3d._activeReplayPromise = userPromise;
                 game.dice3d._activeReplayResolve = resolveReplay;
 
+                const replaySafetyMs = Math.max(
+                    REPLAY_SAFETY_TIMEOUT_MS,
+                    getPlaybackDurationMs(game.dice3d.box, payload.iterationsNeeded) + LANDING_GRACE_MS
+                );
                 setTimeout(() => {
                     if (game.dice3d?._activeReplayResolves?.[payload.user] === resolveReplay) {
                         try { resolveReplay(); } catch (e) {}
@@ -132,7 +138,7 @@ export class ReplayManager {
                             delete game.dice3d._activeReplayPromises[payload.user];
                         }
                     }
-                }, 15000);
+                }, replaySafetyMs);
             }
 
             this.replayQueue = this.replayQueue || [];

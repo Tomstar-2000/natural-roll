@@ -3,6 +3,8 @@ import { shouldAutoRoll as dnd5eShouldAutoRoll, getRollType as dnd5eGetRollType 
 import { shouldAutoRoll as daggerheartShouldAutoRoll, preEvaluate as daggerheartPreEvaluate, preEvaluateInit as daggerheartPreEvaluateInit } from "./systems/daggerheart.js";
 import { DiceInteractionManager } from "./DiceInteractionManager.js";
 
+const MANUAL_ROLL_SAFETY_TIMEOUT_MS = 60000;
+
 function getSystemRollType(roll) {
     const systemId = game.system?.id;
     if (systemId === "dnd5e") {
@@ -211,22 +213,31 @@ export class DSNPatcher {
                 if (game.dice3d) {
                     game.dice3d._currentLocalRoll = roll;
 
-                    let timeoutId;
-                    const timeoutPromise = new Promise((resolve) => {
-                        timeoutId = setTimeout(() => resolve(roll), 60000);
-                    });
+                    let timeoutId = null;
+                    let resolveManualRoll;
                     const manualRollPromise = new Promise((resolve) => {
-                        roll._naturalRollResolve = () => {
+                        resolveManualRoll = () => {
                             if (timeoutId) clearTimeout(timeoutId);
+                            timeoutId = null;
                             resolve(roll);
                         };
                     });
+                    const armSafetyTimeout = (ms) => {
+                        if (timeoutId) clearTimeout(timeoutId);
+                        timeoutId = (ms === null || ms === undefined) ? null : setTimeout(() => {
+                            log(`Manual roll safety timeout reached after ${Math.round(ms)}ms; releasing roll.`);
+                            resolveManualRoll();
+                        }, ms);
+                    };
+                    roll._naturalRollResolve = resolveManualRoll;
+                    roll._naturalRollArmTimeout = armSafetyTimeout;
+                    armSafetyTimeout(MANUAL_ROLL_SAFETY_TIMEOUT_MS);
                     try {
                         const dsnPromise = game.dice3d.showForRoll(roll, game.user, true);
                         if (dsnPromise && typeof dsnPromise.catch === "function") {
                             dsnPromise.catch(err => error("DSN showForRoll error:", err));
                         }
-                        await Promise.race([manualRollPromise, timeoutPromise]);
+                        await manualRollPromise;
                     } catch (err) {
                         error("Error playing manual roll in Roll.evaluate:", err);
                     } finally {
@@ -254,6 +265,7 @@ export class DSNPatcher {
                             game.dice3d._isLocalRollInitiation = false;
                         }
                         delete roll._naturalRollResolve;
+                        delete roll._naturalRollArmTimeout;
                     }
                 }
                 return roll;

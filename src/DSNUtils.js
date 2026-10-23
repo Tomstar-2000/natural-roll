@@ -33,6 +33,27 @@ export function setEngineRunning(engine, value) {
     }
 }
 
+const DEFAULT_ITERATIONS = 150;
+
+export const LANDING_GRACE_MS = 1500;
+
+export function getPlaybackDurationMs(engine, iterations) {
+    const throwEngine = getThrowEngine(engine);
+    let stepInterval = 1000 / 60;
+    const fr = throwEngine?.framerate;
+    if (fr) {
+        if (fr > 50) {
+            stepInterval = 1000 / fr;
+        } else if (fr < 0.1) {
+            stepInterval = fr * 1000;
+        } else {
+            stepInterval = fr;
+        }
+    }
+    const speed = Number(throwEngine?.speed || game.dice3d?.box?.speed) || 1;
+    return ((iterations || DEFAULT_ITERATIONS) * stepInterval) / speed;
+}
+
 export function renderDSNScene(engine) {
     const throwEngine = getThrowEngine(engine);
 
