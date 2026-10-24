@@ -1,4 +1,5 @@
 import { log, error, getAuthorizedUsers } from "./utils.js";
+import { getCanvasElement } from "./DSNUtils.js";
 
 export class DiceThrowDataBuilder {
     static sanitizeThrows(throws) {
@@ -74,6 +75,7 @@ export class DiceThrowDataBuilder {
 
             const roll = game.dice3d?._currentLocalRoll;
             const authorizedUsers = getAuthorizedUsers(roll);
+            const dsnCanvas = getCanvasElement(game.dice3d?.canvas);
             const payload = {
                 user: game.user.id,
                 naturalRollId: naturalRollId,
@@ -84,8 +86,8 @@ export class DiceThrowDataBuilder {
                 faceValues: mappedFaceValues,
                 finalQuaternions: mappedFinalQuaternions,
                 deads: deads ? Array.from(deads) : undefined,
-                screenWidth: game.dice3d?.canvas?.clientWidth || window.innerWidth,
-                screenHeight: game.dice3d?.canvas?.clientHeight || window.innerHeight,
+                screenWidth: dsnCanvas?.clientWidth || window.innerWidth,
+                screenHeight: dsnCanvas?.clientHeight || window.innerHeight,
                 authorizedUsers: authorizedUsers,
                 magicalEffectStyle: game.settings.get("natural-roll", "magicalEffectStyle")
             };

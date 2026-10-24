@@ -3,7 +3,8 @@ import { ParticleManager } from "./ParticleManager.js";
 import { DSNAppearanceResolver } from "./DSNAppearanceResolver.js";
 import { ReplayManager } from "./ReplayManager.js";
 import { DiceThrowDataBuilder } from "./DiceThrowDataBuilder.js";
-import { buildDieThrow, quaternionToAxisTurns, randomUnitQuaternion } from "./ThrowPhysics.js";
+import { buildDieThrow } from "./ThrowPhysics.js";
+import { getDsnEngine } from "./engines/DsnEngine.js";
 import { createDieSpring, snapDieSpring, stepDieSpring } from "./HandSpring.js";
 import { estimateFlick } from "./FlickEstimator.js";
 import {
@@ -15,11 +16,13 @@ import {
     disposeObject3D,
     stopDSNTicker,
     getPlaybackDurationMs,
-    LANDING_GRACE_MS
+    LANDING_GRACE_MS,
+    getDieScreenFraction
 } from "./DSNUtils.js";
 
-const HOLD_SAFETY_MARGIN_MS = 60000;
-const UNLIMITED_HOLD_SAFETY_MS = 10 * 60 * 1000;
+const HOLD_WATCHDOG_MS = 15000;
+const HOLD_HEARTBEAT_MS = 5000;
+const SIMULATION_WATCHDOG_MS = 30000;
 
 let lastPointerPos = { x: 0, y: 0 };
 if (typeof window !== "undefined") {
@@ -216,6 +219,10 @@ export class DiceInteractionManager {
             clearTimeout(state.timeoutId);
             state.timeoutId = null;
         }
+        if (state.heartbeatId) {
+            clearInterval(state.heartbeatId);
+            state.heartbeatId = null;
+        }
 
         state._active = false;
         if (state.swingRafId !== null) {
@@ -289,31 +296,11 @@ export class DiceInteractionManager {
         throwEngine._naturalRollBypassResolveOnClear = true;
         DiceInteractionManager.cleanup(throwEngine);
 
-        const isV13 = (game.release?.generation !== undefined ? game.release.generation <= 13 : (game.version ? parseInt(game.version) <= 13 : !throwEngine.spawnDiceMesh));
-        if (!isV13 && throwEngine.physicsWorker) {
-            try {
-                await throwEngine.physicsWorker.exec("removeConstraint", {});
-                const oldIds = (throwEngine.diceList || []).concat(throwEngine.deadDiceList || []).map(d => d.id);
-                if (oldIds.length > 0) {
-                    await throwEngine.physicsWorker.exec("removeDice", oldIds);
-                }
-            } catch (e) {}
-        }
+        const dsnEngine = getDsnEngine();
+        await dsnEngine.prepareWorkerForHold(throwEngine);
 
         throwEngine._simulationReady = false;
         throwEngine.throws = null;
-
-        if (isV13 && throwEngine.physicsWorker && !throwEngine.physicsWorker._naturalRollHoldPatch) {
-            const originalExec = throwEngine.physicsWorker.exec.bind(throwEngine.physicsWorker);
-            throwEngine.physicsWorker._naturalRollHoldPatch = true;
-            throwEngine.physicsWorker._naturalRollOriginalExec = originalExec;
-            throwEngine.physicsWorker.exec = async function(cmd, ...args) {
-                if (cmd === "playStep" && throwEngine._simulationReady === false) {
-                    return { ids: null, worldAsleep: true };
-                }
-                return originalExec(cmd, ...args);
-            };
-        }
 
         stopDSNTicker();
 
@@ -364,12 +351,11 @@ export class DiceInteractionManager {
             return scaleMultiplier * (scopedScale / 100) * 50;
         };
 
-        const defaultRadius = 25;
         const rect = dsnCanvas ? dsnCanvas.getBoundingClientRect() : { left: 0, top: 0, width: (typeof window !== "undefined" ? window.innerWidth : 1920), height: (typeof window !== "undefined" ? window.innerHeight : 1080) };
         const centerCoords = DiceInteractionManager.get3DCoords({
             clientX: rect.left + rect.width / 2,
             clientY: rect.top + rect.height / 2
-        }, isV13 ? defaultRadius : 0.1, throwEngine) || (isV13 ? { x: 0, y: 0, z: defaultRadius } : { x: 0, y: 0.1, z: 0 });
+        }, dsnEngine.spawnPlaneHeight, throwEngine) || dsnEngine.centerFallback();
 
         let spawnPos = centerCoords;
 
@@ -377,7 +363,7 @@ export class DiceInteractionManager {
             const cursor3D = DiceInteractionManager.get3DCoords({
                 clientX: lastPointerPos.x,
                 clientY: lastPointerPos.y
-            }, isV13 ? defaultRadius : 0.1, throwEngine);
+            }, dsnEngine.spawnPlaneHeight, throwEngine);
             if (cursor3D) {
                 spawnPos = cursor3D;
             }
@@ -385,12 +371,10 @@ export class DiceInteractionManager {
 
         const getFormationSpacing = () => {
             const rawSpread = game.settings.get("natural-roll", "diceSpread") ?? 0.06;
-            if (!isV13) return rawSpread * 3.0;
-
             const dieRadius = throwEngine.diceList.length > 0
                 ? getDieRadius(throwEngine.diceList[0]?.type || "d6")
                 : 30;
-            return dieRadius * (2 + rawSpread * 50);
+            return dsnEngine.formationSpacing(rawSpread, dieRadius);
         };
 
         const getDiceOffset = (index, totalDice) => {
@@ -403,7 +387,7 @@ export class DiceInteractionManager {
             if (totalDice === 2) {
                 const offset = c * 0.5;
                 const dx = (index === 0) ? -offset : offset;
-                return isV13 ? { dx, dy: 0, dz: 0 } : { dx, dy: 0, dz: 0 };
+                return dsnEngine.planeOffset(dx, 0);
             }
 
             if (totalDice === 3) {
@@ -411,7 +395,7 @@ export class DiceInteractionManager {
                 const angle = (index * (2 * Math.PI / 3)) - (Math.PI / 2);
                 const dx = radius * Math.cos(angle);
                 const dOther = radius * Math.sin(angle);
-                return isV13 ? { dx, dy: dOther, dz: 0 } : { dx, dy: 0, dz: dOther };
+                return dsnEngine.planeOffset(dx, dOther);
             }
 
             const goldenAngle = 137.5 * (Math.PI / 180);
@@ -419,7 +403,7 @@ export class DiceInteractionManager {
             const theta = index * goldenAngle;
             const dx = Math.cos(theta) * r;
             const dOther = Math.sin(theta) * r;
-            return isV13 ? { dx, dy: dOther, dz: 0 } : { dx, dy: 0, dz: dOther };
+            return dsnEngine.planeOffset(dx, dOther);
         };
 
         const setDieWorldPosition = (die, x, y, z) => {
@@ -454,16 +438,7 @@ export class DiceInteractionManager {
                     die.startAtIteration = 0;
 
                     const offset = getDiceOffset(spawned, countNewDice);
-                    const radius = isV13 ? getDieRadius(die.type) : 0.1;
-                    const pos = isV13 ? {
-                        x: spawnPos.x + offset.dx,
-                        y: spawnPos.y + offset.dy,
-                        z: radius + (spawned * 0.003)
-                    } : {
-                        x: spawnPos.x + offset.dx,
-                        y: (spawnPos.y || 0.1) + (spawned * 0.003),
-                        z: spawnPos.z + offset.dz
-                    };
+                    const pos = dsnEngine.spawnPosition(spawnPos, offset, getDieRadius(die.type), spawned);
                     die.vectors.pos = pos;
                     die.vectors.velocity = { x: 0, y: 0, z: 0 };
                     die.vectors.angle = { x: 0, y: 0, z: 0 };
@@ -476,23 +451,7 @@ export class DiceInteractionManager {
                     });
                     die.appearance = appearance;
 
-                    if (isV13) {
-                        await throwEngine.spawnDice(die, appearance);
-                    } else if (throwEngine.spawnDiceMesh) {
-                        await throwEngine.spawnDiceMesh(
-                            die,
-                            appearance,
-                            notationVectors.dsnConfig.diceLibrary,
-                            workerSpecs
-                        );
-                    } else {
-                        await throwEngine.spawnDice(
-                            die,
-                            appearance,
-                            notationVectors.dsnConfig.diceLibrary,
-                            workerSpecs
-                        );
-                    }
+                    await dsnEngine.spawnDie(throwEngine, die, appearance, notationVectors, workerSpecs);
 
                     const dicemesh = throwEngine.diceList[throwEngine.diceList.length - 1];
                     if (dicemesh) {
@@ -506,9 +465,7 @@ export class DiceInteractionManager {
             }
 
             throwEngine.minIterations = 0;
-            if (!isV13 && workerSpecs.length > 0) {
-                await throwEngine.physicsWorker.exec('createDiceBatch', workerSpecs);
-            }
+            await dsnEngine.commitSpawnedDice(throwEngine, workerSpecs);
         }
 
         throwEngine.iteration = 0;
@@ -529,12 +486,7 @@ export class DiceInteractionManager {
                 die.parent.userData.constrained = true;
             }
 
-            const heldObj = getHeldObject(die);
-            if (isV13 && heldObj.quaternion?.clone) {
-                const q = randomUnitQuaternion();
-                heldObj.quaternion.set(q.x, q.y, q.z, q.w);
-                die.userData.naturalRollBaseQuaternion = heldObj.quaternion.clone();
-            }
+            dsnEngine.initHeldOrientation(die, getHeldObject(die));
         }
 
         const interactionState = {
@@ -548,6 +500,7 @@ export class DiceInteractionManager {
             spawnPos,
             pointerId: undefined,
             timeoutId: null,
+            heartbeatId: null,
             onPointerDown: null,
             onPointerMove: null,
             onPointerUp: null,
@@ -572,10 +525,21 @@ export class DiceInteractionManager {
 
         throwEngine._naturalRollState = interactionState;
 
-        const holdLimitMs = game.settings.get("natural-roll", "enableTimeout")
-            ? (game.settings.get("natural-roll", "timeoutDuration") || 15) * 1000
-            : UNLIMITED_HOLD_SAFETY_MS;
-        game.dice3d?._currentLocalRoll?._naturalRollArmTimeout?.(holdLimitMs + HOLD_SAFETY_MARGIN_MS);
+        const heldRoll = game.dice3d?._currentLocalRoll;
+        const isHoldAlive = () => interactionState._active
+            && throwEngine._naturalRollState === interactionState
+            && dsnCanvas?.isConnected !== false;
+        const armHoldWatchdog = () => heldRoll?._naturalRollArmTimeout?.(HOLD_WATCHDOG_MS);
+
+        armHoldWatchdog();
+        interactionState.heartbeatId = setInterval(() => {
+            if (isHoldAlive()) {
+                armHoldWatchdog();
+                return;
+            }
+            clearInterval(interactionState.heartbeatId);
+            interactionState.heartbeatId = null;
+        }, HOLD_HEARTBEAT_MS);
 
         const resolveRollWhenLanded = (roll, iterations) => {
             throwEngine.callback = function(...args) {
@@ -592,16 +556,7 @@ export class DiceInteractionManager {
         let pendingWorkerPositions = null;
 
         const getHeldTarget = (pos3D, die, index, totalHeld) => {
-            const offset = getDiceOffset(index, totalHeld);
-            return isV13 ? {
-                x: pos3D.x + offset.dx,
-                y: pos3D.y + offset.dy,
-                z: getDieRadius(die.type) + 5
-            } : {
-                x: pos3D.x + offset.dx,
-                y: pos3D.y || 0.1,
-                z: (pos3D.z || 0) + offset.dz
-            };
+            return dsnEngine.heldTarget(pos3D, getDiceOffset(index, totalHeld), getDieRadius(die.type));
         };
 
         const sendWorkerPositions = (positions) => {
@@ -631,7 +586,7 @@ export class DiceInteractionManager {
                 setDieWorldPosition(die, spring.pos.x, spring.pos.y, spring.pos.z);
                 positions[die.id] = { ...spring.pos };
             }
-            if (!isV13 && throwEngine.physicsWorker) {
+            if (dsnEngine.usesWorkerConstraints && throwEngine.physicsWorker) {
                 sendWorkerPositions(positions);
             }
         };
@@ -699,14 +654,7 @@ export class DiceInteractionManager {
 
         updateConstraints(spawnPos, { snap: true });
 
-        if (!isV13 && throwEngine.physicsWorker) {
-            for (const die of throwEngine.diceList) {
-                const worldPos = getDieWorldPosition(die);
-                try {
-                    await throwEngine.physicsWorker.exec("addConstraint", { id: die.id, pos: worldPos });
-                } catch (e) {}
-            }
-        }
+        await dsnEngine.attachHoldConstraints(throwEngine, throwEngine.diceList, getDieWorldPosition);
 
         renderDSNScene(throwEngine);
 
@@ -761,18 +709,7 @@ export class DiceInteractionManager {
                     const curTiltX = interactionState.tiltX + Math.sin(swayPhase + diePhase) * 0.02;
                     const curTiltY = interactionState.tiltY + Math.cos(swayPhase * 0.8 + diePhase) * 0.02;
 
-                    if (isV13) {
-                        obj.rotation.set(curTiltX, curTiltY, Math.sin(swayPhase + diePhase) * 0.04);
-                        const baseQuaternion = die.userData?.naturalRollBaseQuaternion;
-                        if (baseQuaternion) {
-                            obj.quaternion.multiply(baseQuaternion);
-                        }
-                    } else {
-
-                        obj.rotation.x = curTiltX;
-                        obj.rotation.z = -curTiltY;
-                        obj.rotation.y = Math.sin(swayPhase + diePhase) * 0.05;
-                    }
+                    dsnEngine.applyHeldTilt(obj, curTiltX, curTiltY, Math.sin(swayPhase + diePhase), die.userData?.naturalRollBaseQuaternion);
                 }
 
                 renderDSNScene(throwEngine);
@@ -869,7 +806,7 @@ export class DiceInteractionManager {
 
             clearRollTimeout();
 
-            const pos3D = DiceInteractionManager.get3DCoords(e, isV13 ? 30 : 0.1, throwEngine);
+            const pos3D = DiceInteractionManager.get3DCoords(e, dsnEngine.pointerPlaneHeight, throwEngine);
             if (!pos3D) return;
 
             e.stopPropagation();
@@ -906,7 +843,7 @@ export class DiceInteractionManager {
             if (!interactionState.isDragging) return;
             if (e.pointerId !== interactionState.pointerId) return;
 
-            const pos3D = DiceInteractionManager.get3DCoords(e, isV13 ? 30 : 0.1, throwEngine);
+            const pos3D = DiceInteractionManager.get3DCoords(e, dsnEngine.pointerPlaneHeight, throwEngine);
             if (!pos3D) return;
 
             e.stopPropagation();
@@ -930,7 +867,7 @@ export class DiceInteractionManager {
             const coalesced = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
             const samples = coalesced.length > 1 ? coalesced : [e];
             for (const sample of samples) {
-                const samplePos3D = sample === e ? pos3D : DiceInteractionManager.get3DCoords(sample, isV13 ? 30 : 0.1, throwEngine);
+                const samplePos3D = sample === e ? pos3D : DiceInteractionManager.get3DCoords(sample, dsnEngine.pointerPlaneHeight, throwEngine);
                 if (!samplePos3D) continue;
                 const sampleTime = (Number.isFinite(sample.timeStamp) && Math.abs(now - sample.timeStamp) < 1000)
                     ? Math.min(sample.timeStamp, now)
@@ -955,10 +892,11 @@ export class DiceInteractionManager {
         }));
 
         const buildDieThrows = (throwParams) => new Map(
-            interactionState.heldDice.map(die => [die.id, buildDieThrow({ isV13, ...throwParams })])
+            interactionState.heldDice.map(die => [die.id, buildDieThrow({ engine: dsnEngine, ...throwParams })])
         );
 
         const launchHeldDice = async (dieThrows, heldOrientations) => {
+            heldRoll?._naturalRollArmTimeout?.(SIMULATION_WATCHDOG_MS);
             for (const die of interactionState.heldDice) {
                 if (die?.userData) {
                     die.userData.constrained = false;
@@ -967,46 +905,14 @@ export class DiceInteractionManager {
             setEngineRolling(throwEngine, true);
             throwEngine._simulationReady = false;
 
-            if (!isV13) {
-                await throwEngine.physicsWorker.exec("removeConstraint", {
-                    ids: interactionState.heldDice.map(d => d.id)
-                });
-                return Object.fromEntries(interactionState.heldDice.map(d => [d.id, dieThrows.get(d.id)]));
-            }
-
-            await throwEngine.physicsWorker.exec("removeDice", interactionState.heldDice.map(d => d.id));
-            for (const die of interactionState.heldDice) {
-                const pos = getDieWorldPosition(die);
-                const dieThrow = dieThrows.get(die.id);
-                log("Recreating v13 die", { id: die.id, pos, velocity: dieThrow.velocity });
-                const vectordata = {
-                    type: die.notation.type,
-                    pos: { x: pos.x, y: pos.y, z: pos.z },
-                    velocity: dieThrow.velocity,
-                    angle: dieThrow.angularVelocity,
-                    axis: quaternionToAxisTurns(heldOrientations.get(die.id))
-                };
-                const diceobj = throwEngine.dicefactory.get(die.notation.type);
-                let mass = diceobj.mass;
-                const material = die.appearance?.material || "plastic";
-                switch (material) {
-                    case "metal": mass *= 7; break;
-                    case "wood": mass *= 0.65; break;
-                    case "glass": mass *= 2; break;
-                    case "stone": mass *= 1.5; break;
-                }
-                await throwEngine.physicsWorker.exec('createDice', {
-                    id: die.id,
-                    shape: diceobj.shape,
-                    material: material,
-                    vectordata: vectordata,
-                    mass: mass,
-                    startAtIteration: 0,
-                    options: die.options
-                });
-                await throwEngine.physicsWorker.exec('addDice', die.id);
-            }
-            return {};
+            return dsnEngine.launchHeldDice({
+                throwEngine,
+                heldDice: interactionState.heldDice,
+                dieThrows,
+                heldOrientations,
+                getDieWorldPosition,
+                log
+            });
         };
 
         const onPointerUp = async (e) => {
@@ -1025,8 +931,8 @@ export class DiceInteractionManager {
             try {
                 const now = performance.now();
                 const lastSample = moveHistory[moveHistory.length - 1] || dragStart;
-                const posEnd3D = DiceInteractionManager.get3DCoords(e, isV13 ? 30 : 0.1, throwEngine) || lastSample?.pos3D;
-                const flick = estimateFlick(moveHistory, { x: e.clientX, y: e.clientY, time: now, pos3D: posEnd3D }, isV13);
+                const posEnd3D = DiceInteractionManager.get3DCoords(e, dsnEngine.pointerPlaneHeight, throwEngine) || lastSample?.pos3D;
+                const flick = estimateFlick(moveHistory, { x: e.clientX, y: e.clientY, time: now, pos3D: posEnd3D }, dsnEngine);
 
                 let tossSpeed = 0.4;
                 let dirX = 1;
@@ -1053,7 +959,7 @@ export class DiceInteractionManager {
 
                 const lift = 0.2 + (tossSpeed / 5.0) * 0.9;
                 const spinMultiplier = 0.35 + (tossSpeed / 5.0) * 0.65;
-                const baseSpin = isV13 ? (25 + Math.random() * 10) : (40 + Math.random() * 15);
+                const baseSpin = dsnEngine.baseSpin();
 
                 log("User flicked/tossed dice.", {
                     direction: { x: dirX, z: dirZ },
@@ -1068,15 +974,12 @@ export class DiceInteractionManager {
                     dsnCanvas.style.pointerEvents = "none";
                 }
 
-                const simParams = {
+                const simParams = dsnEngine.simulationParams({
                     minIterations: throwEngine.minIterations,
                     nbIterationsBetweenRolls: throwEngine.nbIterationsBetweenRolls,
                     framerate: throwEngine.framerate,
                     canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped")
-                };
-                if (!isV13) {
-                    simParams.impulses = impulses;
-                }
+                }, impulses);
 
                 const simResult = await throwEngine.physicsWorker.exec('simulateThrow', simParams);
 
@@ -1095,7 +998,7 @@ export class DiceInteractionManager {
                 throwEngine.quaternions = quaternions;
                 throwEngine.positions = positions;
                 throwEngine.ids = ids;
-                if (game.dice3d?.box && isV13) {
+                if (game.dice3d?.box && dsnEngine.mirrorsSimulationToBox) {
                     try {
                         game.dice3d.box.quaternions = quaternions;
                         game.dice3d.box.positions = positions;
@@ -1106,36 +1009,8 @@ export class DiceInteractionManager {
                 const idToIndex = new Map();
                 ids.forEach((id, index) => idToIndex.set(id, index));
 
-                let faceValues = simResult.faceValues;
-                if (isV13) {
-                    faceValues = {};
-                    for (const dicemesh of throwEngine.diceList) {
-                        if (dicemesh) {
-                            const index = idToIndex.get(dicemesh.id);
-                            if (index !== undefined && quaternions[index]) {
-                                const stepCount = quaternions[index].length / 4;
-                                if (stepCount > 0) {
-                                    const lastStep = stepCount - 1;
-                                    const origQ = dicemesh.quaternion.clone();
-                                    dicemesh.quaternion.set(
-                                        quaternions[index][lastStep * 4],
-                                        quaternions[index][lastStep * 4 + 1],
-                                        quaternions[index][lastStep * 4 + 2],
-                                        quaternions[index][lastStep * 4 + 3]
-                                    );
-                                    dicemesh.updateMatrix();
-                                    dicemesh.updateMatrixWorld(true);
-                                    const val = await dicemesh.getValue();
-                                    faceValues[dicemesh.id] = parseInt(val);
-                                    dicemesh.quaternion.copy(origQ);
-                                    dicemesh.updateMatrix();
-                                    dicemesh.updateMatrixWorld(true);
-                                }
-                            }
-                        }
-                    }
-                    simResult.faceValues = faceValues;
-                }
+                const faceValues = await dsnEngine.resolveFaceValues(throwEngine, simResult, quaternions, idToIndex);
+                simResult.faceValues = faceValues;
 
                 const ephemeralDiceList = [...throwEngine.diceList, ...throwEngine.deadDiceList];
                 for (const dice of ephemeralDiceList) {
@@ -1245,11 +1120,7 @@ export class DiceInteractionManager {
                         if (finalVal !== undefined) {
                             dicemesh.forcedResult = finalVal;
                         }
-                        if (isV13) {
-                            await throwEngine.swapDiceFace(dicemesh);
-                        } else {
-                            throwEngine.swapDiceFace(dicemesh, finalVal);
-                        }
+                        await dsnEngine.swapDiceFace(throwEngine, dicemesh, finalVal);
                         dicemesh.result = null;
                     }
                 }
@@ -1305,7 +1176,7 @@ export class DiceInteractionManager {
                 const lift = 0.5;
 
                 const spinMultiplier = 0.65;
-                const baseSpin = isV13 ? (25 + Math.random() * 10) : (40 + Math.random() * 15);
+                const baseSpin = dsnEngine.baseSpin();
 
                 log("Auto-roll timeout triggered. Rolling dice automatically.");
 
@@ -1316,15 +1187,12 @@ export class DiceInteractionManager {
                     dsnCanvas.style.pointerEvents = "none";
                 }
 
-                const simParams = {
+                const simParams = dsnEngine.simulationParams({
                     minIterations: throwEngine.minIterations,
                     nbIterationsBetweenRolls: throwEngine.nbIterationsBetweenRolls,
                     framerate: throwEngine.framerate,
                     canBeFlipped: game.settings.get("dice-so-nice", "diceCanBeFlipped")
-                };
-                if (!isV13) {
-                    simParams.impulses = impulses;
-                }
+                }, impulses);
 
                 const simResult = await throwEngine.physicsWorker.exec('simulateThrow', simParams);
 
@@ -1352,36 +1220,8 @@ export class DiceInteractionManager {
                 const idToIndex = new Map();
                 ids.forEach((id, index) => idToIndex.set(id, index));
 
-                let faceValues = simResult.faceValues;
-                if (isV13) {
-                    faceValues = {};
-                    for (const dicemesh of throwEngine.diceList) {
-                        if (dicemesh) {
-                            const index = idToIndex.get(dicemesh.id);
-                            if (index !== undefined && quaternions[index]) {
-                                const stepCount = quaternions[index].length / 4;
-                                if (stepCount > 0) {
-                                    const lastStep = stepCount - 1;
-                                    const origQ = dicemesh.quaternion.clone();
-                                    dicemesh.quaternion.set(
-                                        quaternions[index][lastStep * 4],
-                                        quaternions[index][lastStep * 4 + 1],
-                                        quaternions[index][lastStep * 4 + 2],
-                                        quaternions[index][lastStep * 4 + 3]
-                                    );
-                                    dicemesh.updateMatrix();
-                                    dicemesh.updateMatrixWorld(true);
-                                    const val = await dicemesh.getValue();
-                                    faceValues[dicemesh.id] = parseInt(val);
-                                    dicemesh.quaternion.copy(origQ);
-                                    dicemesh.updateMatrix();
-                                    dicemesh.updateMatrixWorld(true);
-                                }
-                            }
-                        }
-                    }
-                    simResult.faceValues = faceValues;
-                }
+                const faceValues = await dsnEngine.resolveFaceValues(throwEngine, simResult, quaternions, idToIndex);
+                simResult.faceValues = faceValues;
 
                 const roll = game.dice3d?._currentLocalRoll;
                 if (roll) {
@@ -1403,11 +1243,7 @@ export class DiceInteractionManager {
 
                 for (const dicemesh of throwEngine.diceList) {
                     if (dicemesh) {
-                        if (isV13) {
-                            await throwEngine.swapDiceFace(dicemesh);
-                        } else {
-                            throwEngine.swapDiceFace(dicemesh, faceValues[dicemesh.id]);
-                        }
+                        await dsnEngine.swapDiceFace(throwEngine, dicemesh, faceValues[dicemesh.id]);
                         dicemesh.result = null;
                     }
                 }
@@ -1576,7 +1412,8 @@ export class DiceInteractionManager {
                 return {
                     id: rollerId,
                     quaternions: qArr,
-                    positions: pArr
+                    positions: pArr,
+                    release: getDieScreenFraction(dicemesh)
                 };
             });
 

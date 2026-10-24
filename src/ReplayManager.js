@@ -1,8 +1,34 @@
 import { log, error } from "./utils.js";
 import { ParticleManager } from "./ParticleManager.js";
-import { getCanvasElement, getThrowEngine, setEngineRunning, getPlaybackDurationMs, LANDING_GRACE_MS } from "./DSNUtils.js";
+import { getCanvasElement, getThrowEngine, setEngineRunning, getPlaybackDurationMs, LANDING_GRACE_MS, getDieScreenFraction, screenFractionToClient } from "./DSNUtils.js";
 
 const REPLAY_SAFETY_TIMEOUT_MS = 15000;
+
+function backfillLeadingFrames(buffer, stride) {
+    const frameCount = Math.floor(buffer.length / stride);
+    const isEmpty = (frame) => {
+        for (let k = 0; k < stride; k++) {
+            if (buffer[frame * stride + k] !== 0) return false;
+        }
+        return true;
+    };
+
+    let firstRecorded = 0;
+    while (firstRecorded < frameCount && isEmpty(firstRecorded)) firstRecorded++;
+    if (firstRecorded === 0 || firstRecorded >= frameCount) return buffer;
+
+    const filled = Float32Array.from(buffer);
+    for (let f = 0; f < firstRecorded; f++) {
+        filled.copyWithin(f * stride, firstRecorded * stride, (firstRecorded + 1) * stride);
+    }
+    return filled;
+}
+
+function placeDieAt(dicemesh, x, y, z) {
+    const parent = dicemesh.parent;
+    const holder = parent && !parent.isScene && parent.type !== "Scene" ? parent : dicemesh;
+    holder.position?.set(x, y, z);
+}
 
 export class ReplayManager {
     static recentReplays = [];
@@ -287,44 +313,38 @@ export class ReplayManager {
 
                     if (rollerIndex !== -1) {
                         const trajectory = replayPayload.trajectories[rollerIndex];
-                        quaternionsBuffers.push(new Float32Array(trajectory.quaternions).buffer);
+                        const quatArray = backfillLeadingFrames(new Float32Array(trajectory.quaternions), 4);
+                        quaternionsBuffers.push(quatArray.buffer);
+
+                        const posArray = backfillLeadingFrames(
+                            new Float32Array(trajectory.positions).map(v => v * scale),
+                            3
+                        );
+                        positionsBuffers.push(posArray.buffer);
+
+                        if (dicemesh && posArray.length >= 3) {
+                            placeDieAt(dicemesh, posArray[0], posArray[1], posArray[2]);
+                        }
 
                         try {
-                            if (game.settings.get("natural-roll", "enableMagicalEffects")) {
-                                const diceScene = game.dice3d?.box?.diceScene || game.dice3d?.box;
-                                if (dsnCanvas && diceScene && diceScene.camera && trajectory.positions?.length >= 3) {
-                                    const camera = diceScene.camera;
-                                    const rect = dsnCanvas.getBoundingClientRect();
-                                    const width = rect.width;
-                                    const height = rect.height;
+                            if (game.settings.get("natural-roll", "enableMagicalEffects") && dicemesh) {
+                                log(`Replay die ${localId} start position (${posArray[0]}, ${posArray[1]}, ${posArray[2]}), roller release fraction:`, trajectory.release);
+                                const screenPos = trajectory.release
+                                    ? screenFractionToClient(trajectory.release)
+                                    : (() => {
+                                        const fraction = getDieScreenFraction(dicemesh);
+                                        return fraction ? screenFractionToClient(fraction) : null;
+                                    })();
 
-                                    const pX = trajectory.positions[0] * scale;
-                                    const pY = trajectory.positions[1] * scale;
-                                    const pZ = trajectory.positions[2] * scale;
-
-                                    if (dicemesh && dicemesh.position) {
-                                        const tempV = dicemesh.position.clone();
-                                        tempV.set(pX, pY, pZ);
-                                        tempV.project(camera);
-
-                                        const screenX = ((tempV.x + 1) * width) / 2 + rect.left;
-                                        const screenY = ((-tempV.y + 1) * height) / 2 + rect.top;
-
-                                        const effectStyle = replayPayload.magicalEffectStyle || game.settings.get("natural-roll", "magicalEffectStyle") || "smoke";
-                                        log(`Replay spawn magical effect (${effectStyle}) at screen coordinates: (${screenX}, ${screenY}) for die ${localId}`);
-                                        ParticleManager.spawnEffect(screenX, screenY, effectStyle);
-                                    }
+                                if (screenPos) {
+                                    const effectStyle = replayPayload.magicalEffectStyle || game.settings.get("natural-roll", "magicalEffectStyle") || "smoke";
+                                    log(`Replay spawn magical effect (${effectStyle}) at screen coordinates: (${screenPos.x}, ${screenPos.y}) for die ${localId}`);
+                                    ParticleManager.spawnEffect(screenPos.x, screenPos.y, effectStyle);
                                 }
                             }
                         } catch (err) {
                             error("Error triggering replay magical effect:", err);
                         }
-
-                        const posArray = new Float32Array(trajectory.positions);
-                        for (let i = 0; i < posArray.length; i++) {
-                            posArray[i] *= scale;
-                        }
-                        positionsBuffers.push(posArray.buffer);
 
                         deads.push(replayPayload.deads?.[rollerIndex] ?? false);
                     } else {

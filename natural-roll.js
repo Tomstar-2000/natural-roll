@@ -5,7 +5,6 @@ console.log("%cNatural Roll %c| Script file parsed and running!", "color: #00ffa
 
 Hooks.once('init', () => {
     console.log("Natural Roll | Hooks.once('init') callback running.");
-    // --- GM / World Settings ---
     game.settings.register("natural-roll", "enableTimeout", {
         name: "NATURAL_ROLL.Settings.EnableTimeout.Name",
         hint: "NATURAL_ROLL.Settings.EnableTimeout.Hint",
@@ -49,7 +48,6 @@ Hooks.once('init', () => {
         }
     });
 
-    // --- User / Client Settings ---
     game.settings.register("natural-roll", "enabled", {
         name: "NATURAL_ROLL.Settings.Enabled.Name",
         hint: "NATURAL_ROLL.Settings.Enabled.Hint",

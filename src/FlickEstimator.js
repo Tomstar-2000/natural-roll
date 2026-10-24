@@ -35,15 +35,15 @@ function findPeakSegment(samples, release) {
     return peak;
 }
 
-function getHorizontalDirection(a, b, isV13) {
+function getHorizontalDirection(a, b, engine) {
     if (!a?.pos3D || !b?.pos3D) return null;
     const dx = b.pos3D.x - a.pos3D.x;
-    const dz = isV13 ? (b.pos3D.y - a.pos3D.y) : (b.pos3D.z - a.pos3D.z);
+    const dz = engine.planarDepthDelta(a.pos3D, b.pos3D);
     const len = Math.hypot(dx, dz);
     return len > MIN_DIRECTION_LENGTH ? { x: dx / len, z: dz / len } : null;
 }
 
-export function estimateFlick(history, release, isV13) {
+export function estimateFlick(history, release, engine) {
     const samples = [...(history || []).filter(s => s && s.time <= release.time), release]
         .sort((a, b) => a.time - b.time);
 
@@ -55,6 +55,6 @@ export function estimateFlick(history, release, isV13) {
 
     return {
         speed: peak.speed * (1 - fade),
-        direction: getHorizontalDirection(peak.a, peak.b, isV13)
+        direction: getHorizontalDirection(peak.a, peak.b, engine)
     };
 }

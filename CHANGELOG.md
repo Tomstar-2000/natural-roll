@@ -2,13 +2,29 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
-## [1.5.7] - 2026-10-07
+## [1.5.7] - 2026-10-24
 
 ### Added
 
 - **Organized Settings Menu**: Reorganized module settings into distinct GM/World-level settings (timeouts, grab radius) and Client/User-level settings (flick strength, spawn at cursor, shake SFX, dice spread, replays, and magical particle FX) for cleaner configuration.
+- **3D Magical Spawn Effects**: Rebuilt the Magical Smoke, Lightning Strike, and Dimensional Portal effects with a pseudo-3D perspective projection so they sit on the dice tray instead of rendering as flat 2D overlays. Effects use additive light blending, perspective-scaled particles, and depth-sorted drawing, and are split into dedicated modules under `src/effects/`.
+  - **Dimensional Portal**: Now a recessed vortex opening in the table, with a dark throat, rings flowing down the walls, helical energy arms twisting into a glowing core, a lit torus rim drawn in front of and behind its particles, motes spiralling in and rising out through a light column, and an implosion burst on collapse.
+  - **Magical Smoke**: Billows are shaded as lit spheres and drawn back-to-front, with a ground contact shadow, an expanding shockwave ring, and an initial flash.
+  - **Lightning Strike**: The bolt tapers from sky to ground, with a ground impact glow, an expanding shockwave ring, and a lingering scorch mark.
+  - **Bouncing Sparks**: Sparks across all styles now arc under gravity and skip along the tray surface.
+- **Dice So Nice Engine Adapters**: Natural Roll now selects its engine behaviour from the installed Dice So Nice version (with feature detection as a fallback) rather than the Foundry version. Engine-specific logic is isolated in `LegacyDsnEngine` (DSN 5.x and earlier: Z-up, pixel units, client-side face resolution) and `ModernDsnEngine` (DSN 6+: Y-up, metre units, worker constraints and impulses) under `src/engines/`.
+- **Spring-Driven Held Dice**: Held dice follow the cursor through spring dynamics for smoother, weightier dragging, with formation targets per die.
+- **Flick Estimation**: Throw direction and strength are derived from the peak pointer velocity just before release, fading out if the hand stopped before letting go, for more natural tosses.
+- **Throw Jitter & Spin**: Each die receives small random variations in direction, speed, lift, and spin around a topspin-weighted axis, so multi-dice throws no longer move in lockstep.
+- **Manual Roll Safety Watchdog**: Added an internal safeguard so a manual roll can never hang Foundry's roll evaluation if Dice So Nice or the throw fails to complete. This is separate from the GM auto-roll timeout: it doesn't throw dice, it only releases a stuck roll. While dice are held, a heartbeat keeps the roll open only as long as the hold session is alive, so legitimate long holds are never cut short and a broken session is released within about 15 seconds. After release, the window covers the physics simulation and then the simulated playback duration.
 
 ### Fixed
+
+- **Remote Spawn Effect Position**: Fixed magical effects on other players' screens always triggering from the centre of the screen. The rolling client now sends each die's on-screen release point (as a fraction of the dice canvas, so it holds across different screen sizes) and receivers spawn the effect there.
+- **Remote Dice Entry Point**: Replayed dice now start at the roller's release point. Leading unrecorded frames in replay trajectories (left zeroed by older DSN physics workers) are backfilled with the first recorded position and rotation, and dice are placed there before playback begins instead of at DSN's default spawn spot.
+- **V13 Replay Scaling**: Fixed replay positions being scaled towards the centre on DSN 5 / V13 when the dice area is smaller than the window, caused by reading `clientWidth` from DSN's jQuery canvas wrapper instead of the underlying element.
+- **DSN 5 on Foundry V14**: Running Dice So Nice 5.3.x on Foundry V14 no longer applies DSN 6 axes, units, and worker calls, since engine selection now follows the installed DSN version.
+- **Duplicate Roll Detection for Term-Based Rolls**: Recent-roll and chat-message duplicate detection now falls back to `roll.terms` when `roll.dice` is empty, matching the face value resolution, so term-based rolls are no longer replayed twice.
 
 - **Dice So Nice 6.4+ / V14 Interactive Throw Conflict**: Resolved an issue where Dice So Nice (v6.4+) flagged chat messages as pending interactive throws (`flags.dice-so-nice.interactiveThrow`), conflicting with manual physical rolling and roll completion state.
 - **Roll Terms & Compound Formula Resolution**: Hardened roll term detection across `DSNPatcher` and `DiceInteractionManager` to cleanly fall back to `roll.terms` whenever `roll.dice` is empty or lazily structured, ensuring face values and replays are reliably matched and applied.

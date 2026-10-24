@@ -54,6 +54,45 @@ export function getPlaybackDurationMs(engine, iterations) {
     return ((iterations || DEFAULT_ITERATIONS) * stepInterval) / speed;
 }
 
+export function getDiceCanvasRect() {
+    const dsnCanvas = getCanvasElement(game.dice3d?.canvas);
+    const rect = dsnCanvas?.getBoundingClientRect?.();
+    return {
+        left: rect?.left || 0,
+        top: rect?.top || 0,
+        width: rect?.width || window.innerWidth,
+        height: rect?.height || window.innerHeight
+    };
+}
+
+export function getDieScreenFraction(dicemesh) {
+    const camera = (game.dice3d?.box?.diceScene || game.dice3d?.box)?.camera;
+    if (!dicemesh || !camera) return null;
+
+    const parent = dicemesh.parent;
+    const holder = parent && !parent.isScene && parent.type !== "Scene" ? parent : dicemesh;
+    if (!holder.position?.clone) return null;
+
+    const worldPos = holder.position.clone();
+    if (typeof holder.getWorldPosition === "function") {
+        holder.getWorldPosition(worldPos);
+    }
+    worldPos.project(camera);
+
+    const x = (worldPos.x + 1) / 2;
+    const y = (-worldPos.y + 1) / 2;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+}
+
+export function screenFractionToClient(fraction) {
+    const rect = getDiceCanvasRect();
+    return {
+        x: rect.left + fraction.x * rect.width,
+        y: rect.top + fraction.y * rect.height
+    };
+}
+
 export function renderDSNScene(engine) {
     const throwEngine = getThrowEngine(engine);
 

@@ -1,6 +1,3 @@
-const V13_VELOCITY_SCALE = 2000;
-const V14_VELOCITY_SCALE = 3.0;
-
 const DIRECTION_JITTER_RAD = 0.12;
 const SPEED_JITTER = 0.10;
 const LIFT_JITTER = 0.15;
@@ -53,14 +50,14 @@ export function quaternionToAxisTurns(q) {
     };
 }
 
-export function buildDieThrow({ isV13, dirX, dirZ, tossSpeed, lift, baseSpin, spinMultiplier }) {
+export function buildDieThrow({ engine, dirX, dirZ, tossSpeed, lift, baseSpin, spinMultiplier }) {
     const angle = Math.atan2(dirZ, dirX) + (Math.random() * 2 - 1) * DIRECTION_JITTER_RAD;
     const dx = Math.cos(angle);
     const dz = Math.sin(angle);
     const speed = tossSpeed * jitter(SPEED_JITTER);
     const dieLift = lift * jitter(LIFT_JITTER);
 
-    const topspinAxis = isV13 ? { x: -dz, y: dx, z: 0 } : { x: dz, y: 0, z: -dx };
+    const { topspinAxis, velocity } = engine.throwVectors(dx, dz, speed, dieLift);
     const wobble = randomUnitVector();
     const spinAxis = normalize({
         x: topspinAxis.x * TOPSPIN_WEIGHT + wobble.x * WOBBLE_WEIGHT,
@@ -69,16 +66,6 @@ export function buildDieThrow({ isV13, dirX, dirZ, tossSpeed, lift, baseSpin, sp
     });
 
     const spinMagnitude = baseSpin * spinMultiplier * Math.sqrt(3) * jitter(SPIN_JITTER);
-
-    const velocity = isV13 ? {
-        x: dx * speed * V13_VELOCITY_SCALE,
-        y: dz * speed * V13_VELOCITY_SCALE,
-        z: dieLift * V13_VELOCITY_SCALE
-    } : {
-        x: dx * speed * V14_VELOCITY_SCALE,
-        y: dieLift,
-        z: dz * speed * V14_VELOCITY_SCALE
-    };
 
     return {
         velocity,
