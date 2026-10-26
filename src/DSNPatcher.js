@@ -2,6 +2,7 @@ import { log, error, getAuthorizedUsers, getAuthorizedUsersFromMessage } from ".
 import { shouldAutoRoll as dnd5eShouldAutoRoll, getRollType as dnd5eGetRollType } from "./systems/dnd5e.js";
 import { shouldAutoRoll as daggerheartShouldAutoRoll, preEvaluate as daggerheartPreEvaluate, preEvaluateInit as daggerheartPreEvaluateInit } from "./systems/daggerheart.js";
 import { DiceInteractionManager } from "./DiceInteractionManager.js";
+import { RecordedThrows } from "./RecordedThrows.js";
 
 const MANUAL_ROLL_SAFETY_TIMEOUT_MS = 60000;
 
@@ -14,6 +15,7 @@ function getSystemRollType(roll) {
 }
 
 function shouldAutoRoll(roll) {
+    if (roll?.options?.naturalRollSkip) return true;
     const systemId = game.system?.id;
     if (systemId === "dnd5e") {
         return dnd5eShouldAutoRoll(roll);
@@ -53,6 +55,16 @@ async function handleEngineBatch(context, throws, persistentThrowData, callback,
         return persistentThrowData !== undefined
             ? originalFn.call(context, throws, persistentThrowData, callback)
             : originalFn.call(context, throws, callback);
+    }
+
+    if (!throws.some(t => t.isNaturalRollReplay) && game.settings.get("natural-roll", "enableReplay")) {
+        const recorded = RecordedThrows.buildReplayPayload(context, throws);
+        if (recorded) {
+            for (const t of throws) {
+                t.isNaturalRollReplay = true;
+                t.replayPayload = recorded;
+            }
+        }
     }
 
     const isReplay = throws.some(t => t.isNaturalRollReplay);
@@ -161,6 +173,7 @@ export class DSNPatcher {
         let evaluateDepth = 0;
         const originalEvaluate = Roll.prototype.evaluate;
         Roll.prototype.evaluate = async function(options = {}) {
+            if (options?.minimize || options?.maximize) return originalEvaluate.call(this, options);
             evaluateDepth++;
             try {
                 const preEvalIsAuto = shouldAutoRoll(this);
@@ -178,6 +191,8 @@ export class DSNPatcher {
                 if (!game.settings.get("natural-roll", "enabled")) return roll;
 
                 if (isAuto) return roll;
+
+                if (!roll.dice?.length) return roll;
 
                 if (evaluateDepth > 1) {
                     return roll;

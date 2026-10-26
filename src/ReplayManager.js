@@ -1,8 +1,42 @@
 import { log, error } from "./utils.js";
 import { ParticleManager } from "./ParticleManager.js";
+import { RECORDING_OPTION } from "./RecordedThrows.js";
 import { getCanvasElement, getThrowEngine, setEngineRunning, getPlaybackDurationMs, LANDING_GRACE_MS, getDieScreenFraction, screenFractionToClient } from "./DSNUtils.js";
 
 const REPLAY_SAFETY_TIMEOUT_MS = 15000;
+
+/** The last frame a die has a pose in (a zero quaternion marks frames past its end). */
+function lastPoseFrame(quaternions) {
+    for (let f = Math.floor(quaternions.length / 4) - 1; f >= 0; f--) {
+        if (quaternions[f * 4] || quaternions[f * 4 + 1] || quaternions[f * 4 + 2] || quaternions[f * 4 + 3]) return f;
+    }
+    return -1;
+}
+
+/**
+ * Rebuild a replayed die's physics body where the replay leaves it, at rest. The replay stands in for Dice So
+ * Nice's simulation, so the body would otherwise keep its spawn pose and throw velocity, and the next real
+ * simulation (e.g. of a later roll, while the die stays on the table as a persistent die) would throw it again.
+ */
+async function restBodyAtReplayEnd(exec, worker, spec, positions, quaternions) {
+    const f = lastPoseFrame(quaternions);
+    if (f < 0) return;
+    const [x, y, z, w] = quaternions.slice(f * 4, f * 4 + 4);
+    const angle = 2 * Math.acos(Math.max(-1, Math.min(1, w)));
+    const s = Math.sqrt(Math.max(0, 1 - w * w));
+    const axis = s < 1e-6 ? { x: 1, y: 0, z: 0, a: 0 } : { x: x / s, y: y / s, z: z / s, a: angle / (2 * Math.PI) };
+    const vectordata = {
+        ...spec.vectordata,
+        pos: { x: positions[f * 3], y: positions[f * 3 + 1], z: positions[f * 3 + 2] },
+        axis,
+        angle: { x: 0, y: 0, z: 0 },
+        velocity: { x: 0, y: 0, z: 0 }
+    };
+    await exec.call(worker, "removeDice", [spec.id]);
+    await exec.call(worker, "createDice", { ...spec, vectordata, startAtIteration: 0 });
+    await exec.call(worker, "addDice", spec.id);
+    log(`Replay: die ${spec.id} placed at rest where its throw ends.`);
+}
 
 function backfillLeadingFrames(buffer, stride) {
     const frameCount = Math.floor(buffer.length / stride);
@@ -245,15 +279,19 @@ export class ReplayManager {
         const dicefactory = throwEngine?.dicefactory || game.dice3d?.box?.dicefactory;
         if (dicefactory && !dicefactory._naturalRollOriginalGetAppearance) {
             dicefactory._naturalRollOriginalGetAppearance = dicefactory.getAppearanceForDice;
-            dicefactory.getAppearanceForDice = function(appearanceConfig, diceType, dieContext) {
-                if (dieContext?.appearance) {
+            dicefactory.getAppearanceForDice = function(appearanceConfig, diceType, dieContext, ...rest) {
+                if (dieContext?.appearance && !dieContext.options?.[RECORDING_OPTION]) {
                     return foundry.utils.duplicate(dieContext.appearance);
                 }
-                return dicefactory._naturalRollOriginalGetAppearance.call(this, appearanceConfig, diceType, dieContext);
+                return dicefactory._naturalRollOriginalGetAppearance.call(this, appearanceConfig, diceType, dieContext, ...rest);
             };
         }
 
+        const bodySpecs = new Map();
         worker.exec = async function(method, params) {
+            if (method === 'createDiceBatch' && Array.isArray(params)) {
+                for (const spec of params) bodySpecs.set(spec.id, spec);
+            }
             if (method === 'simulateThrow') {
                 if (game.dice3d) {
                     game.dice3d._naturalRollReplayPrepared = false;
@@ -261,10 +299,16 @@ export class ReplayManager {
                 }
                 const localDiceList = [...(throwEngine?.diceList || []), ...(throwEngine?.deadDiceList || [])];
                 const localIds = localDiceList.map(d => d.id);
+                const throwDice = throwEngine?.diceList || [];
+                const rollerIdOf = (dicemesh) => {
+                    if (!replayPayload.matchByOrder) return dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || dicemesh?.id;
+                    const index = throwDice.indexOf(dicemesh);
+                    return index === -1 ? undefined : replayPayload.trajectories[index]?.id;
+                };
 
                 const faceValues = {};
                 localDiceList.forEach(dicemesh => {
-                    const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || dicemesh?.id;
+                    const rollerId = rollerIdOf(dicemesh);
                     let targetValue = replayPayload.faceValues?.[rollerId];
 
                     if (targetValue === undefined) {
@@ -281,7 +325,7 @@ export class ReplayManager {
 
                 const finalQuaternions = {};
                 localDiceList.forEach(dicemesh => {
-                    const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || dicemesh?.id;
+                    const rollerId = rollerIdOf(dicemesh);
                     let targetQuat = replayPayload.finalQuaternions?.[rollerId];
                     if (!targetQuat) {
                         const fallbackQuats = Object.values(replayPayload.finalQuaternions || {});
@@ -306,9 +350,9 @@ export class ReplayManager {
                     scale = currentWidth / replayPayload.screenWidth;
                 }
 
-                localIds.forEach(localId => {
+                for (const localId of localIds) {
                     const dicemesh = localDiceList.find(d => d.id === localId);
-                    const rollerId = dicemesh?.userData?.rollerId || dicemesh?.options?.naturalRollDieId || dicemesh?.id;
+                    const rollerId = rollerIdOf(dicemesh);
                     const rollerIndex = replayPayload.trajectories.findIndex(t => t.id === rollerId);
 
                     if (rollerIndex !== -1) {
@@ -324,6 +368,15 @@ export class ReplayManager {
 
                         if (dicemesh && posArray.length >= 3) {
                             placeDieAt(dicemesh, posArray[0], posArray[1], posArray[2]);
+                        }
+
+                        const spec = bodySpecs.get(localId);
+                        if (spec && typeof worker._originalExec === "function") {
+                            try {
+                                await restBodyAtReplayEnd(worker._originalExec, worker, spec, posArray, quatArray);
+                            } catch (err) {
+                                error("Error placing a replayed die's physics body:", err);
+                            }
                         }
 
                         try {
@@ -348,11 +401,20 @@ export class ReplayManager {
 
                         deads.push(replayPayload.deads?.[rollerIndex] ?? false);
                     } else {
-                        quaternionsBuffers.push(new Float32Array(1001 * 4).buffer);
-                        positionsBuffers.push(new Float32Array(1001 * 3).buffer);
-                        deads.push(false);
+                        const at = dicemesh?.parent?.type === "Scene" ? dicemesh : dicemesh?.parent;
+                        const quaternions = new Float32Array(1001 * 4);
+                        const positions = new Float32Array(1001 * 3);
+                        if (at) {
+                            for (let f = 0; f < 1001; f++) {
+                                quaternions.set([at.quaternion.x, at.quaternion.y, at.quaternion.z, at.quaternion.w], f * 4);
+                                positions.set([at.position.x, at.position.y, at.position.z], f * 3);
+                            }
+                        }
+                        quaternionsBuffers.push(quaternions.buffer);
+                        positionsBuffers.push(positions.buffer);
+                        deads.push(true);
                     }
-                });
+                }
 
                 setEngineRunning(throwEngine, (new Date()).getTime());
                 throwEngine._simulationReady = true;

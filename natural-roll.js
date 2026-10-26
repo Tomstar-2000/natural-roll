@@ -1,5 +1,6 @@
 import { DSNPatcher } from "./src/DSNPatcher.js";
 import { DiceInteractionManager } from "./src/DiceInteractionManager.js";
+import { RECORDING_OPTION } from "./src/RecordedThrows.js";
 
 console.log("%cNatural Roll %c| Script file parsed and running!", "color: #00ffaa; font-weight: bold; background: #222; padding: 2px 4px; border-radius: 3px;", "color: inherit;");
 
@@ -144,6 +145,30 @@ Hooks.once('init', () => {
     });
 
     DSNPatcher.init();
+
+    game.modules.get("natural-roll").api = {
+        /**
+         * Mark a roll as already thrown elsewhere (e.g. on a companion device), so Natural Roll
+         * evaluates it without holding the dice on the canvas or playing its own 3D throw.
+         * Call this before the roll is evaluated. The mark is kept in the roll's options, so it survives
+         * copies of the roll (e.g. midi-qol showing Dice So Nice for its own copy).
+         */
+        skipManualRoll(roll) {
+            roll._naturalRollIntercepted = true;
+            roll.options = roll.options || {};
+            roll.options.naturalRollSkip = true;
+        },
+
+        /**
+         * Attach a throw recorded elsewhere to a dice term, so every client plays exactly that throw when
+         * Dice So Nice shows the roll (see src/RecordedThrows.js for the recording format). The recording
+         * is kept in the term's options, so it travels with the roll into its chat message.
+         */
+        recordThrow(term, recording) {
+            term.options = term.options || {};
+            term.options[RECORDING_OPTION] = recording;
+        }
+    };
 });
 
 const initReady = () => {

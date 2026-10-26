@@ -2,6 +2,13 @@
 
 All notable changes to the **Natural Roll** module will be documented in this file.
 
+## [1.6.0] - 2026-10-24
+
+### Added
+
+- **Public API**: Added `game.modules.get("natural-roll").api` for other modules. `api.skipManualRoll(roll)` marks a roll as already thrown elsewhere (e.g. on a companion device), so Natural Roll evaluates it without holding the dice on the canvas or playing its own 3D throw. Modules should use this instead of setting Natural Roll's internal roll properties.
+- **Recorded Throws**: `api.recordThrow(term, recording)` attaches a throw recorded elsewhere (e.g. dice thrown on a companion device) to a dice term. Every client then plays exactly that throw when Dice So Nice shows the roll, through the replay engine, instead of a new simulated throw landing on the same faces. The recording travels with the roll into its chat message. Dice are matched by throw order, since clients spawn a message's dice through different paths. A recording may name the table it was thrown on (`area`); the throw is then fitted into each viewer's Dice So Nice view, turned a quarter turn when the shapes differ (a tall phone, a wide monitor) and its travel scaled down only if it would still leave the view.
+
 ## [1.5.7] - 2026-10-24
 
 ### Added
