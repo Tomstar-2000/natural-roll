@@ -72,6 +72,13 @@ export class ReplayManager {
     static lastCompletedRollTime = 0;
     static replayQueue = [];
     static isReplayExecuting = false;
+    /** Set through api.suppressReplays: others' throws are not played on this screen, though Enable Replay is on. */
+    static suppressed = false;
+
+    /** Whether other players' throws play on this screen. */
+    static get replaysShown() {
+        return !this.suppressed && !!game.settings.get("natural-roll", "enableReplay");
+    }
 
     static pruneRecentReplays() {
         const now = Date.now();
@@ -222,8 +229,8 @@ export class ReplayManager {
             this.activeGrabTimeouts.delete(payload.user);
         }
 
-        if (!game.settings.get("natural-roll", "enableReplay")) {
-            log("Replay is disabled by user settings, ignoring playback but caching completed timestamp.");
+        if (!this.replaysShown) {
+            log("Replay is disabled or suppressed, ignoring playback but caching completed timestamp.");
             this.lastCompletedRollTime = Date.now();
             return;
         }

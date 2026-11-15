@@ -1,6 +1,7 @@
 import { DSNPatcher } from "./src/DSNPatcher.js";
 import { DiceInteractionManager } from "./src/DiceInteractionManager.js";
 import { RECORDING_OPTION } from "./src/RecordedThrows.js";
+import { ReplayManager } from "./src/ReplayManager.js";
 
 console.log("%cNatural Roll %c| Script file parsed and running!", "color: #00ffaa; font-weight: bold; background: #222; padding: 2px 4px; border-radius: 3px;", "color: inherit;");
 
@@ -167,6 +168,14 @@ Hooks.once('init', () => {
         recordThrow(term, recording) {
             term.options = term.options || {};
             term.options[RECORDING_OPTION] = recording;
+        },
+
+        /**
+         * Stop (or resume) playing other players' throws on this screen, whatever Enable Replay says, e.g. while a
+         * companion page covers it and plays them itself. Not saved: it lasts until the page reloads.
+         */
+        suppressReplays(suppressed) {
+            ReplayManager.suppressed = !!suppressed;
         }
     };
 });

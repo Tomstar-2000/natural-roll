@@ -3,6 +3,7 @@ import { shouldAutoRoll as dnd5eShouldAutoRoll, getRollType as dnd5eGetRollType 
 import { shouldAutoRoll as daggerheartShouldAutoRoll, preEvaluate as daggerheartPreEvaluate, preEvaluateInit as daggerheartPreEvaluateInit } from "./systems/daggerheart.js";
 import { DiceInteractionManager } from "./DiceInteractionManager.js";
 import { RecordedThrows } from "./RecordedThrows.js";
+import { ReplayManager } from "./ReplayManager.js";
 
 const MANUAL_ROLL_SAFETY_TIMEOUT_MS = 60000;
 
@@ -711,8 +712,8 @@ export class DSNPatcher {
 
                     if (!isRollingUser) {
                         const isManual = roll.options?.isNaturalRollManual || rollDice.some(d => d.options?.isNaturalRollManual);
-                        if (isManual && !game.settings.get("natural-roll", "enableReplay")) {
-                            log("Bypassing manual roll on remote client: Replay is disabled.");
+                        if (isManual && !ReplayManager.replaysShown) {
+                            log("Bypassing manual roll on remote client: Replay is disabled or suppressed.");
                             game.dice3d._currentLocalRoll = null;
                             if (messageID) {
                                 try { Hooks.callAll("diceSoNiceRollComplete", messageID); } catch (e) {}
